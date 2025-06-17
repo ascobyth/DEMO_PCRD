@@ -62,12 +62,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       setIsLoading(true)
 
-      // In a real app, this would validate with your backend
-      // For now, we'll use our mock function
-      const user = await checkUserExists(email)
+      // Call the login API endpoint
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      })
 
-      if (user) {
-        // In a real app, you would verify the password here
+      const data = await response.json()
+
+      if (data.success && data.user) {
+        // Map the user data to our expected format
+        const user = {
+          id: data.user.id,
+          name: data.user.name,
+          email: data.user.email,
+          role: mapDbRoleToUserRole(data.user.role),
+          department: data.user.department || data.user.division || 'Unknown Department',
+        }
+
         setUser(user)
         localStorage.setItem("pcrd_user", JSON.stringify(user))
         
@@ -84,6 +99,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false)
     }
+  }
+
+  // Helper function to map database roles to simplified roles
+  const mapDbRoleToUserRole = (dbRole: string): "user" | "admin" | "lab_manager" => {
+    const roleMapping: { [key: string]: "user" | "admin" | "lab_manager" } = {
+      'SuperAdmin': 'admin',
+      'Admin': 'admin',
+      'ATCManager': 'lab_manager',
+      'RequesterManager': 'lab_manager',
+      'Requester': 'user',
+      'EngineerResearcher': 'user',
+      'SeniorEngineerSeniorResearcher': 'user',
+      'Technician': 'lab_manager',
+      'TechnicianAssistant': 'lab_manager'
+    }
+    
+    return roleMapping[dbRole] || 'user'
   }
 
   const logout = () => {

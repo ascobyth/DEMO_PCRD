@@ -160,7 +160,7 @@ export default function LoginPage() {
                 </div>
                 <div className="mt-4 text-sm text-center text-gray-500">
                   <p>Default admin account: admin@admin.com</p>
-                  <p>Password: admin123</p>
+                  <p>Password: password123</p>
                 </div>
               </form>
               {error && (
