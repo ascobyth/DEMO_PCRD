@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test Update API</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test-section { margin: 20px 0; padding: 20px; border: 1px solid #ccc; }
+        .success { color: green; }
+        .error { color: red; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background: #f5f5f5; padding: 10px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>Test Update API</h1>
+    
+    <div class="test-section">
+        <h2>1. Test Basic Endpoint</h2>
+        <button onclick="testBasicEndpoint()">Test Basic API</button>
+        <div id="basic-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>2. Test Request Details</h2>
+        <input type="text" id="request-id" value="ME-N-0525-00002" />
+        <button onclick="testGetRequest()">Get Request</button>
+        <div id="get-result"></div>
+    </div>
+    
+    <div class="test-section">
+        <h2>3. Test Update Request</h2>
+        <input type="text" id="update-title" placeholder="New title" />
+        <button onclick="testUpdateRequest()">Update Request</button>
+        <div id="update-result"></div>
+    </div>
+    
+    <script>
+        async function testBasicEndpoint() {
+            const resultDiv = document.getElementById('basic-result');
+            try {
+                resultDiv.innerHTML = '<p>Testing...</p>';
+                const response = await fetch('/api/test-update');
+                const data = await response.json();
+                resultDiv.innerHTML = '<pre class="success">' + JSON.stringify(data, null, 2) + '</pre>';
+            } catch (error) {
+                resultDiv.innerHTML = '<pre class="error">Error: ' + error.message + '</pre>';
+            }
+        }
+        
+        async function testGetRequest() {
+            const resultDiv = document.getElementById('get-result');
+            const requestId = document.getElementById('request-id').value;
+            
+            try {
+                resultDiv.innerHTML = '<p>Fetching...</p>';
+                const response = await fetch(`/api/requests/${requestId}/details`);
+                const data = await response.json();
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <p><strong>Title:</strong> ${data.data.requestTitle}</p>
+                            <p><strong>Status:</strong> ${data.data.requestStatus}</p>
+                            <p><strong>Updated:</strong> ${data.data.updatedAt}</p>
+                        </div>
+                        <pre>${JSON.stringify(data.data, null, 2)}</pre>
+                    `;
+                } else {
+                    resultDiv.innerHTML = '<pre class="error">' + JSON.stringify(data, null, 2) + '</pre>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<pre class="error">Error: ' + error.message + '</pre>';
+            }
+        }
+        
+        async function testUpdateRequest() {
+            const resultDiv = document.getElementById('update-result');
+            const requestId = document.getElementById('request-id').value;
+            const newTitle = document.getElementById('update-title').value || `Updated at ${new Date().toLocaleString()}`;
+            
+            const updateData = {
+                requestTitle: newTitle,
+                requestStatus: "Pending Receive",
+                useIONumber: "yes",
+                ioNumber: "100060001234",
+                costCenter: "COST123",
+                priority: "normal",
+                samples: [{
+                    id: "sample-1",
+                    sampleId: "sample-1",
+                    name: "Test Sample",
+                    generatedName: "Test Sample",
+                    category: "commercial",
+                    remark: ""
+                }],
+                testMethods: [{
+                    id: "method-1",
+                    methodId: "method-1",
+                    name: "Test Method",
+                    methodCode: "TM001",
+                    category: "Testing",
+                    price: 100,
+                    turnaround: 7,
+                    remarks: "",
+                    testingRemark: "",
+                    samples: ["Test Sample"]
+                }]
+            };
+            
+            try {
+                resultDiv.innerHTML = '<p>Updating...</p>';
+                console.log('Sending update:', updateData);
+                
+                const response = await fetch(`/api/requests/${requestId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(updateData)
+                });
+                
+                const data = await response.json();
+                console.log('Response:', data);
+                
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <div class="success">
+                            <p>✅ Update successful!</p>
+                            <p>New title: ${newTitle}</p>
+                        </div>
+                        <pre>${JSON.stringify(data, null, 2)}</pre>
+                    `;
+                    
+                    // Verify the update
+                    setTimeout(testGetRequest, 1000);
+                } else {
+                    resultDiv.innerHTML = '<pre class="error">' + JSON.stringify(data, null, 2) + '</pre>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = '<pre class="error">Error: ' + error.message + '</pre>';
+                console.error('Update error:', error);
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Set Test Score</title>
+</head>
+<body>
+    <h1>Set Test Evaluation Score</h1>
+    <p>This page will set a test evaluation score in localStorage.</p>
+    
+    <button onclick="setScore(5)">Set Score to 5</button>
+    <button onclick="setScore(10)">Set Score to 10</button>
+    <button onclick="setScore(25)">Set Score to 25</button>
+    <button onclick="clearScore()">Clear Score</button>
+    
+    <p id="result"></p>
+    
+    <script>
+        function setScore(score) {
+            localStorage.setItem('userScore_admin@admin.com', score.toString());
+            document.getElementById('result').textContent = `Score set to ${score}. Refresh the dashboard page to see the updated score.`;
+        }
+        
+        function clearScore() {
+            localStorage.removeItem('userScore_admin@admin.com');
+            document.getElementById('result').textContent = 'Score cleared. Refresh the dashboard page.';
+        }
+        
+        // Show current score
+        const currentScore = localStorage.getItem('userScore_admin@admin.com');
+        if (currentScore) {
+            document.getElementById('result').textContent = `Current score in localStorage: ${currentScore}`;
+        }
+    </script>
+</body>
+</html>
