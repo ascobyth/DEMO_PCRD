@@ -68,6 +68,8 @@ import { RequestSummaryDialog } from "@/components/request-summary-dialog"
 import { RequestStatusBadge } from "@/components/request-status-badge"
 import { SampleReceiveDialog } from "@/components/sample-receive-dialog"
 import { RequestViewDetailsDialog } from "@/components/request-view-details-dialog"
+import { ErSlotApprovalDialog } from "@/components/er-slot-approval-dialog"
+import { ErBookingDetailsDialog } from "@/components/er-booking-details-dialog"
 import { toast } from "sonner"
 import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
 
@@ -97,6 +99,8 @@ export default function ERRequestManagementPage() {
   const [summaryDialogOpen, setSummaryDialogOpen] = useState(false)
   const [receiveDialogOpen, setReceiveDialogOpen] = useState(false)
   const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = useState(false)
+  const [slotApprovalDialogOpen, setSlotApprovalDialogOpen] = useState(false)
+  const [bookingDetailsDialogOpen, setBookingDetailsDialogOpen] = useState(false)
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1)
@@ -350,6 +354,65 @@ export default function ERRequestManagementPage() {
     e.stopPropagation()
     setSelectedRequest(request)
     setViewDetailsDialogOpen(true)
+  }
+
+  // Handle slot approval
+  const handleOpenSlotApproval = (e: React.MouseEvent, request: any) => {
+    e.stopPropagation()
+    setSelectedRequest(request)
+    setSlotApprovalDialogOpen(true)
+  }
+
+  // Handle booking details view
+  const handleOpenBookingDetails = (e: React.MouseEvent, request: any) => {
+    e.stopPropagation()
+    setSelectedRequest(request)
+    setBookingDetailsDialogOpen(true)
+  }
+
+  // Handle slots approved
+  const handleSlotsApproved = (requestId: string) => {
+    // Update status to in-progress after approval
+    handleStatusChange(requestId, "in-progress")
+    // Refresh data
+    fetchRequests()
+    fetchStatusCounts()
+  }
+
+  // Handle operation completed
+  const handleOperationCompleted = (e: React.MouseEvent, request: any) => {
+    e.stopPropagation()
+    // This will be handled similar to NTR
+    handleStatusChange(request.id, "completed")
+    toast.success("Operation marked as completed")
+  }
+
+  // Handle create results folder
+  const handleCreateResultsFolder = async (e: React.MouseEvent, request: any) => {
+    e.stopPropagation()
+    try {
+      const response = await fetch(`/api/equipment/${request.id}/create-folder`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      })
+      
+      const data = await response.json()
+      
+      if (data.success) {
+        toast.success("Results folder created successfully")
+        // Open the folder or show the path
+        if (data.folderPath) {
+          window.open(data.folderPath, '_blank')
+        }
+      } else {
+        throw new Error(data.error || 'Failed to create folder')
+      }
+    } catch (error) {
+      console.error('Error creating results folder:', error)
+      toast.error('Failed to create results folder')
+    }
   }
 
   // Handle status change from the summary dialog
@@ -958,52 +1021,54 @@ export default function ERRequestManagementPage() {
                                   </TableCell>
                                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                                     <div className="flex items-center justify-end gap-2">
-                                      {/* Status-specific action buttons */}
+                                      {/* Status-specific action buttons for ER */}
                                       {request.status.toLowerCase() === "pending receive sample" && (
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="h-8 w-8 rounded-full text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                                          title="Approve Time Slots"
+                                          onClick={(e) => handleOpenSlotApproval(e, request)}
+                                        >
+                                          <Clock className="h-4 w-4" />
+                                          <span className="sr-only">Approve Time Slots</span>
+                                        </Button>
+                                      )}
+                                      {request.status.toLowerCase() !== "pending receive sample" && (
                                         <Button
                                           variant="ghost"
                                           size="icon"
                                           className="h-8 w-8 rounded-full text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                                          title="Start Processing"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            handleStatusChange(request.id, "in-progress")
-                                          }}
+                                          title="View Booking Details"
+                                          onClick={(e) => handleOpenBookingDetails(e, request)}
                                         >
-                                          <Clock className="h-4 w-4" />
-                                          <span className="sr-only">Start Processing</span>
-                                        </Button>
-                                      )}
-                                      {request.status.toLowerCase() === "pending receive sample" && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 rounded-full text-green-600 hover:text-green-700 hover:bg-green-50"
-                                          title="View & Receive Samples"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            setSelectedRequest(request)
-                                            setReceiveDialogOpen(true)
-                                          }}
-                                        >
-                                          <PackageOpen className="h-4 w-4" />
-                                          <span className="sr-only">View & Receive Samples</span>
+                                          <Calendar className="h-4 w-4" />
+                                          <span className="sr-only">View Booking Details</span>
                                         </Button>
                                       )}
                                       {request.status.toLowerCase() === "in-progress" && (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="h-8 w-8 rounded-full text-green-600 hover:text-green-700 hover:bg-green-50"
-                                          title="Mark as Completed"
-                                          onClick={(e) => {
-                                            e.stopPropagation()
-                                            handleStatusChange(request.id, "completed")
-                                          }}
-                                        >
-                                          <CheckCircle2 className="h-4 w-4" />
-                                          <span className="sr-only">Mark as Completed</span>
-                                        </Button>
+                                        <>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 rounded-full text-green-600 hover:text-green-700 hover:bg-green-50"
+                                            title="Operation Completed"
+                                            onClick={(e) => handleOperationCompleted(e, request)}
+                                          >
+                                            <CheckCircle2 className="h-4 w-4" />
+                                            <span className="sr-only">Operation Completed</span>
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="h-8 w-8 rounded-full text-orange-600 hover:text-orange-700 hover:bg-orange-50"
+                                            title="Create Results Folder"
+                                            onClick={(e) => handleCreateResultsFolder(e, request)}
+                                          >
+                                            <FileText className="h-4 w-4" />
+                                            <span className="sr-only">Create Results Folder</span>
+                                          </Button>
+                                        </>
                                       )}
                                       <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
@@ -1021,6 +1086,16 @@ export default function ERRequestManagementPage() {
                                             <FileText className="h-4 w-4 mr-2" />
                                             View Details
                                           </DropdownMenuItem>
+                                          {request.status.toLowerCase() === "pending receive sample" && (
+                                            <DropdownMenuItem onClick={(e) => handleOpenSlotApproval(e, request)}>
+                                              <Clock className="h-4 w-4 mr-2" />
+                                              Approve Time Slots
+                                            </DropdownMenuItem>
+                                          )}
+                                          <DropdownMenuItem onClick={(e) => handleOpenBookingDetails(e, request)}>
+                                            <Calendar className="h-4 w-4 mr-2" />
+                                            View Booking Details
+                                          </DropdownMenuItem>
                                           <DropdownMenuItem asChild>
                                             <Link href={`/request/${request.id}`}>
                                               <FileText className="h-4 w-4 mr-2" />
@@ -1028,6 +1103,19 @@ export default function ERRequestManagementPage() {
                                             </Link>
                                           </DropdownMenuItem>
                                           <DropdownMenuSeparator />
+                                          {request.status.toLowerCase() === "in-progress" && (
+                                            <>
+                                              <DropdownMenuItem onClick={(e) => handleOperationCompleted(e, request)}>
+                                                <CheckCircle2 className="h-4 w-4 mr-2" />
+                                                Mark Operation Completed
+                                              </DropdownMenuItem>
+                                              <DropdownMenuItem onClick={(e) => handleCreateResultsFolder(e, request)}>
+                                                <FileText className="h-4 w-4 mr-2" />
+                                                Create Results Folder
+                                              </DropdownMenuItem>
+                                              <DropdownMenuSeparator />
+                                            </>
+                                          )}
                                           <DropdownMenuItem asChild>
                                             <Link href={`/results-repository/${request.id}`}>
                                               <BarChart3 className="h-4 w-4 mr-2" />
@@ -1211,6 +1299,25 @@ export default function ERRequestManagementPage() {
           requestId={selectedRequest.id}
           open={viewDetailsDialogOpen}
           onOpenChange={setViewDetailsDialogOpen}
+        />
+      )}
+
+      {/* ER Slot Approval dialog */}
+      {selectedRequest && (
+        <ErSlotApprovalDialog
+          requestId={selectedRequest.id}
+          open={slotApprovalDialogOpen}
+          onOpenChange={setSlotApprovalDialogOpen}
+          onSlotsApproved={handleSlotsApproved}
+        />
+      )}
+
+      {/* ER Booking Details dialog */}
+      {selectedRequest && (
+        <ErBookingDetailsDialog
+          requestId={selectedRequest.id}
+          open={bookingDetailsDialogOpen}
+          onOpenChange={setBookingDetailsDialogOpen}
         />
       )}
     </div>

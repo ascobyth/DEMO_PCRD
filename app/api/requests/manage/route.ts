@@ -1,12 +1,6 @@
 import { NextResponse } from "next/server";
 import dbConnect from "@/lib/dbConnect";
-import { RequestList } from "@/models";
-import { ErList } from "@/models";
-import { TestingSample } from "@/models";
-import { TestingSampleList } from "@/models";
-const Capability = require("@/models/Capability");
-const AsrList = require("@/models/AsrList");
-const Notification = require("@/models/Notification");
+const { RequestList, ErList, TestingSample, TestingSampleList, Capability, AsrList, Notification } = require("@/models");
 
 // GET endpoint to retrieve all requests with filters
 export async function GET(request: Request) {
@@ -318,17 +312,17 @@ export async function GET(request: Request) {
       if (status && status !== "all") {
         let dbStatus = status;
         if (status === "pending receive sample") {
-          dbStatus = "Pending Receive";
+          dbStatus = "submitted";
         } else if (status === "in-progress") {
           dbStatus = "in-progress";
         } else if (status === "completed") {
-          dbStatus = "Completed";
+          dbStatus = "completed";
         } else if (status === "rejected") {
-          dbStatus = "Rejected";
+          dbStatus = "rejected";
         } else if (status === "terminated") {
           dbStatus = "terminated";
         }
-        erFilter.status = dbStatus;
+        erFilter.requestStatus = dbStatus;
       }
       
       if (priority && priority !== "all") {
@@ -338,9 +332,9 @@ export async function GET(request: Request) {
       // Add search filters for ER
       if (search) {
         erFilter.$or = [
-          { title: { $regex: search, $options: 'i' } },
-          { requester_name: { $regex: search, $options: 'i' } },
-          { request_number: { $regex: search, $options: 'i' } }
+          { requestTitle: { $regex: search, $options: 'i' } },
+          { requesterName: { $regex: search, $options: 'i' } },
+          { requestNumber: { $regex: search, $options: 'i' } }
         ];
       }
       
@@ -353,35 +347,53 @@ export async function GET(request: Request) {
       // Transform the data to match the expected format
       erRequests = erRequests.map(req => {
         // Map database status to frontend expected values for ER
-        let frontendStatus = req.status || "pending";
-        if (req.status === "Pending Receive") {
+        let frontendStatus = req.requestStatus || "pending";
+        if (req.requestStatus === "submitted") {
           frontendStatus = "pending receive sample";
-        } else if (req.status === "in-progress") {
+        } else if (req.requestStatus === "in-progress") {
           frontendStatus = "in-progress";
-        } else if (req.status === "Completed") {
+        } else if (req.requestStatus === "completed") {
           frontendStatus = "completed";
-        } else if (req.status === "Rejected") {
+        } else if (req.requestStatus === "rejected") {
           frontendStatus = "rejected";
-        } else if (req.status === "terminated") {
+        } else if (req.requestStatus === "terminated") {
           frontendStatus = "terminated";
         }
 
+        // Parse equipment list to get equipment names
+        let equipmentName = "Unknown Equipment";
+        let capability = "Unknown";
+        try {
+          if (req.jsonEquipmentList) {
+            const equipmentList = JSON.parse(req.jsonEquipmentList);
+            if (equipmentList && equipmentList.length > 0) {
+              equipmentName = equipmentList.map(eq => eq.equipmentName).join(", ");
+              // Try to get capability from first equipment
+              if (equipmentList[0].capability) {
+                capability = equipmentList[0].capability;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Error parsing jsonEquipmentList:", e);
+        }
+
         return {
-          id: req.request_number,
-          title: req.title || `${req.equipment_name} Reservation`,
+          id: req.requestNumber,
+          title: req.requestTitle || `${equipmentName} Reservation`,
           type: "ER",
-          capability: req.capability_name || "Unknown",
+          capability: capability,
           status: frontendStatus,
-          priority: req.priority || "medium",
-          requester: req.requester_name || "Unknown",
+          priority: req.priority || "normal",
+          requester: req.requesterName || "Unknown",
           requestDate: req.createdAt ? new Date(req.createdAt).toLocaleDateString() : "Unknown",
-          dueDate: req.reservation_date ? new Date(req.reservation_date).toLocaleDateString() : "",
-          assignedTo: req.assigned_to || "Unassigned",
+          dueDate: req.reservationStartDate ? new Date(req.reservationStartDate).toLocaleDateString() : "",
+          assignedTo: req.supportStaff || "Unassigned",
           progress: frontendStatus === "completed" ? 100 : frontendStatus === "in-progress" ? 50 : 0,
           samples: 0, // ER requests don't have samples
-          department: req.department || "Unknown",
-          description: req.description || "No description",
-          equipment: req.equipment_name || "Unknown Equipment",
+          department: req.requesterCostCenter || "Unknown",
+          description: req.notes || "No description",
+          equipment: equipmentName,
         };
       });
     }
@@ -449,17 +461,17 @@ export async function GET(request: Request) {
       if (status && status !== "all") {
         let dbStatus = status;
         if (status === "pending receive sample") {
-          dbStatus = "Pending Receive";
+          dbStatus = "submitted";
         } else if (status === "in-progress") {
           dbStatus = "in-progress";
         } else if (status === "completed") {
-          dbStatus = "Completed";
+          dbStatus = "completed";
         } else if (status === "rejected") {
-          dbStatus = "Rejected";
+          dbStatus = "rejected";
         } else if (status === "terminated") {
           dbStatus = "terminated";
         }
-        erCountFilter.status = dbStatus;
+        erCountFilter.requestStatus = dbStatus;
       }
       if (priority && priority !== "all") {
         erCountFilter.priority = priority;
@@ -520,19 +532,24 @@ export async function GET(request: Request) {
     
     // Count capabilities from ER requests
     if (type === "all" || type === "er") {
-      const erCapabilityAggregation = await ErList.aggregate([
-        { $match: {} },
-        {
-          $group: {
-            _id: "$capability_name",
-            count: { $sum: 1 }
-          }
-        }
-      ]);
+      const allErRequests = await ErList.find({}).lean();
       
-      erCapabilityAggregation.forEach(item => {
-        if (item._id) {
-          capabilityCounts[item._id] = (capabilityCounts[item._id] || 0) + item.count;
+      allErRequests.forEach(req => {
+        try {
+          if (req.jsonEquipmentList) {
+            const equipmentList = JSON.parse(req.jsonEquipmentList);
+            if (equipmentList && equipmentList.length > 0) {
+              // Try to get capability from first equipment
+              const capName = equipmentList[0].capability || "Unknown";
+              capabilityCounts[capName] = (capabilityCounts[capName] || 0) + 1;
+            } else {
+              capabilityCounts["Unknown"] = (capabilityCounts["Unknown"] || 0) + 1;
+            }
+          } else {
+            capabilityCounts["Unknown"] = (capabilityCounts["Unknown"] || 0) + 1;
+          }
+        } catch (e) {
+          capabilityCounts["Unknown"] = (capabilityCounts["Unknown"] || 0) + 1;
         }
       });
     }
@@ -603,11 +620,11 @@ export async function PATCH(request: Request) {
     let updatedRequest;
     
     if (isErRequest) {
-      console.log("Updating ER request with request_number:", id);
+      console.log("Updating ER request with requestNumber:", id);
       updatedRequest = await ErList.findOneAndUpdate(
-        { request_number: id },
+        { requestNumber: id },
         { 
-          status: dbStatus,
+          requestStatus: dbStatus,
           ...(note && { note })
         },
         { new: true }
@@ -728,9 +745,9 @@ export async function PUT(request: Request) {
     // Update ER requests
     if (erIds.length > 0) {
       const result = await ErList.updateMany(
-        { request_number: { $in: erIds } },
+        { requestNumber: { $in: erIds } },
         { 
-          status: dbStatus,
+          requestStatus: dbStatus,
           ...(note && { note }),
           updatedAt: new Date()
         }

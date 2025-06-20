@@ -4,7 +4,7 @@ import type React from "react"
 import { useEffect, useRef } from "react"
 import { useSearchParams } from "next/navigation"
 import { useState } from "react"
-import { ChevronLeft, ChevronRight, HelpCircle, Plus, Save, Trash2, Upload, Copy, Pencil, X } from "lucide-react"
+import { ChevronLeft, ChevronRight, HelpCircle, Plus, Save, Trash2, Upload, Copy, Pencil, X, CalendarIcon, Search, ChevronDown, ChevronUp } from "lucide-react"
 import Link from "next/link"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
@@ -31,7 +31,12 @@ import { SearchableSelect } from "@/components/ui/searchable-select"
 import { useAuth } from "@/components/auth-provider"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { RequestInformationForm } from "@/components/request-information-form"
+import { RequestInformationForm } from "@/components/request-information-form-minimal"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { format, addBusinessDays } from "date-fns"
+import { cn } from "@/lib/utils"
 
 // Define proper types for Sample
 interface Sample {
@@ -146,6 +151,25 @@ export default function NTRPage() {
   const [savingSampleList, setSavingSampleList] = useState(false)
   const [sampleListSearchQuery, setSampleListSearchQuery] = useState("")
 
+  // States for Step 3 - Test Method Selection
+  const [selectedSamples, setSelectedSamples] = useState<number[]>([])
+  const [urgentSamples, setUrgentSamples] = useState<Record<number, boolean>>({})
+  const [sampleDueDates, setSampleDueDates] = useState<Record<number, Date>>({})
+  const [urgentApprover, setUrgentApprover] = useState("")
+  const [urgentJustification, setUrgentJustification] = useState("")
+  const [availableTestMethods, setAvailableTestMethods] = useState<any[]>([])
+  const [loadingTestMethods, setLoadingTestMethods] = useState(false)
+  const [expandedMethods, setExpandedMethods] = useState<Set<string>>(new Set())
+  
+  // New states for test method filtering
+  const [testMethodSearch, setTestMethodSearch] = useState("")
+  const [selectedCapability, setSelectedCapability] = useState("")
+  const [selectedEquipment, setSelectedEquipment] = useState("")
+  const [capabilities, setCapabilities] = useState<any[]>([])
+  const [equipments, setEquipments] = useState<any[]>([])
+  const [loadingCapabilities, setLoadingCapabilities] = useState(false)
+  const [loadingEquipments, setLoadingEquipments] = useState(false)
+
   // Required fields for each sample category
   const requiredFields = {
     commercial: ["grade", "lot", "sampleIdentity", "type", "form"],
@@ -196,6 +220,203 @@ export default function NTRPage() {
       highlightNextEmptyField()
     }
   }, [sampleCategory, showSampleSections]);
+
+  // Fetch available test methods from database
+  useEffect(() => {
+    const fetchTestMethods = async () => {
+      try {
+        setLoadingTestMethods(true)
+        const response = await fetch('/api/test-methods')
+        if (response.ok) {
+          const data = await response.json()
+          // Handle different response structures
+          let methods = []
+          if (Array.isArray(data)) {
+            methods = data
+          } else if (data.methods && Array.isArray(data.methods)) {
+            methods = data.methods
+          } else if (data.data && Array.isArray(data.data)) {
+            methods = data.data
+          }
+          
+          // Process methods to ensure consistent structure
+          const processedMethods = methods.map((method: any) => ({
+            ...method,
+            id: method._id || method.id,
+            name: method.testingName || method.name || method.testName || method.title,
+            testingName: method.testingName || method.name,
+            methodcode: method.methodcode || method.methodCode || method.code || method.testCode || '',
+            detailEng: method.detailEng || method.description || method.testDescription || '',
+            keyResult: method.keyResult || '',
+            sampleAmount: method.sampleAmount || 0,
+            unit: method.unit || '',
+            equipmentName: method.equipmentName || '',
+            equipmentId: method.equipmentId || method.equipment || '', // Keep equipmentId separate
+            capabilityName: method.capabilityId?.capabilityName || method.capabilityName || '',
+            capability: method.capabilityId?._id || method.capability || method.capabilityId || '',
+            capabilityId: method.capabilityId?._id || method.capabilityId || '', // Keep capabilityId separate
+            equipment: method.equipmentId || method.equipment || '',
+            price: method.price || method.cost || '',
+            priorityPrice: method.priorityPrice || '',
+            samples: formData.samples.map((_, index) => index), // Associate with all samples by default
+          }))
+          
+          console.log('Processed test methods:', processedMethods)
+          setAvailableTestMethods(processedMethods)
+        }
+      } catch (error) {
+        console.error('Failed to fetch test methods:', error)
+      } finally {
+        setLoadingTestMethods(false)
+      }
+    }
+    
+    if (currentStep === 3 && formData.samples.length > 0) {
+      fetchTestMethods()
+    }
+  }, [currentStep, formData.samples.length])
+
+  // Set all samples as selected by default when entering step 3
+  useEffect(() => {
+    if (currentStep === 3 && formData.samples.length > 0 && selectedSamples.length === 0) {
+      setSelectedSamples(formData.samples.map((_, index) => index))
+    }
+  }, [currentStep, formData.samples.length, selectedSamples.length])
+
+  // Fetch capabilities when step 3 is reached
+  useEffect(() => {
+    const fetchCapabilities = async () => {
+      try {
+        setLoadingCapabilities(true)
+        const response = await fetch('/api/capabilities')
+        if (response.ok) {
+          const data = await response.json()
+          const capabilitiesData = Array.isArray(data) ? data : data.data || []
+          console.log('Capabilities loaded:', capabilitiesData)
+          setCapabilities(capabilitiesData)
+        }
+      } catch (error) {
+        console.error('Failed to fetch capabilities:', error)
+      } finally {
+        setLoadingCapabilities(false)
+      }
+    }
+
+    if (currentStep === 3) {
+      fetchCapabilities()
+    }
+  }, [currentStep])
+
+  // Fetch equipment based on selected capability
+  useEffect(() => {
+    const fetchEquipment = async () => {
+      try {
+        setLoadingEquipments(true)
+        setSelectedEquipment("") // Reset equipment selection
+        setEquipments([]) // Clear equipment list
+        
+        // First, try to fetch all equipment from the API
+        const response = await fetch('/api/equipment')
+        let allEquipment: any[] = []
+        
+        if (response.ok) {
+          const data = await response.json()
+          allEquipment = Array.isArray(data) ? data : data.data || []
+          console.log('All equipment from API:', allEquipment)
+        }
+        
+        if (selectedCapability && selectedCapability !== 'all' && availableTestMethods.length > 0) {
+          // Get unique equipment from test methods that belong to selected capability
+          const equipmentMap = new Map()
+          
+          console.log('Selected capability:', selectedCapability)
+          console.log('Available test methods:', availableTestMethods.length)
+          
+          const filteredMethods = availableTestMethods.filter(method => {
+            // Check various ways capability might be stored
+            const methodCapability = method.capabilityId || method.capability
+            return methodCapability === selectedCapability
+          })
+          
+          console.log('Methods for capability:', filteredMethods.length)
+          
+          // Create a set of equipment IDs used in filtered methods
+          const usedEquipmentIds = new Set()
+          filteredMethods.forEach(method => {
+            if (method.equipmentId) {
+              usedEquipmentIds.add(String(method.equipmentId))
+            }
+          })
+          
+          console.log('Used equipment IDs:', Array.from(usedEquipmentIds))
+          
+          // If we have equipment from API, filter it
+          if (allEquipment.length > 0) {
+            const filteredEquipment = allEquipment.filter(eq => 
+              usedEquipmentIds.has(String(eq._id)) || 
+              usedEquipmentIds.has(String(eq.equipmentId)) ||
+              usedEquipmentIds.has(String(eq.id))
+            )
+            console.log('Filtered equipment from API:', filteredEquipment)
+            setEquipments(filteredEquipment)
+          } else {
+            // Fallback: extract from test methods
+            filteredMethods.forEach(method => {
+              const equipmentId = method.equipmentId
+              const equipmentName = method.equipmentName
+              
+              if (equipmentId && equipmentName && !equipmentMap.has(equipmentId)) {
+                equipmentMap.set(equipmentId, {
+                  _id: equipmentId,
+                  equipmentId: equipmentId,
+                  name: equipmentName,
+                  equipmentName: equipmentName
+                })
+              }
+            })
+            
+            const equipmentList = Array.from(equipmentMap.values())
+            console.log('Equipment from methods:', equipmentList)
+            setEquipments(equipmentList)
+          }
+        } else {
+          // If "All Capabilities" is selected or no methods available, show all equipment
+          if (allEquipment.length > 0) {
+            setEquipments(allEquipment)
+          } else if (availableTestMethods.length > 0) {
+            // Fallback: extract all unique equipment from test methods
+            const equipmentMap = new Map()
+            
+            availableTestMethods.forEach(method => {
+              const equipmentId = method.equipmentId
+              const equipmentName = method.equipmentName
+              
+              if (equipmentId && equipmentName && !equipmentMap.has(equipmentId)) {
+                equipmentMap.set(equipmentId, {
+                  _id: equipmentId,
+                  equipmentId: equipmentId,
+                  name: equipmentName,
+                  equipmentName: equipmentName
+                })
+              }
+            })
+            
+            const equipmentList = Array.from(equipmentMap.values())
+            console.log('All equipment from methods:', equipmentList)
+            setEquipments(equipmentList)
+          }
+        }
+      } catch (error) {
+        console.error('Failed to process equipment:', error)
+      } finally {
+        setLoadingEquipments(false)
+      }
+    }
+
+    if (currentStep === 3) {
+      fetchEquipment()
+    }
+  }, [currentStep, selectedCapability, availableTestMethods])
 
   // Fetch polymer types when commercial grade is selected
   useEffect(() => {
@@ -1134,8 +1355,18 @@ export default function NTRPage() {
       }
     }
 
-    // If moving from step 2 to step 3, save samples to localStorage
+    // If moving from step 2 to step 3, validate samples and save to localStorage
     if (currentStep === 2) {
+      // Check if there are samples
+      if (formData.samples.length === 0) {
+        toast({
+          title: "No samples added",
+          description: "Please add at least one sample before proceeding.",
+          variant: "destructive"
+        })
+        return
+      }
+      
       try {
         localStorage.setItem("ntrSamples", JSON.stringify(formData.samples))
       } catch (error) {
@@ -1167,7 +1398,6 @@ export default function NTRPage() {
         localStorage.setItem("ntrFormData", JSON.stringify(formDataToSave));
         localStorage.setItem("ntrFormData_persistent", JSON.stringify(formDataToSave));
 
-        console.log("Saved form data to both storages in nextStep:", formDataToSave);
       } catch (error) {
         console.error("Error saving form data to localStorage:", error)
       }
@@ -2115,27 +2345,74 @@ export default function NTRPage() {
     setSampleDialogOpen(true)
   }
 
+  // Function to extract keywords from form data
+  const extractKeywords = () => {
+    const keywords = new Set<string>()
+    
+    // Extract from title
+    if (formData.requestTitle) {
+      const titleWords = formData.requestTitle
+        .toLowerCase()
+        .split(/[\s,.-]+/)
+        .filter(word => word.length > 3 && !['test', 'request', 'sample', 'analysis', 'with', 'from', 'this', 'that', 'these', 'those'].includes(word))
+      titleWords.forEach(word => keywords.add(word))
+    }
+    
+    // Add priority if urgent
+    if (formData.priority === 'urgent') {
+      keywords.add('urgent')
+    }
+    
+    // Add urgency type if exists
+    if (formData.urgencyType) {
+      keywords.add(formData.urgencyType)
+    }
+    
+    // Extract from samples
+    formData.samples.forEach(sample => {
+      if (sample.category) keywords.add(sample.category.toLowerCase())
+      if (sample.grade) keywords.add(sample.grade.toLowerCase())
+      if (sample.type) keywords.add(sample.type.toLowerCase())
+      if (sample.form) keywords.add(sample.form.toLowerCase())
+      if (sample.plant) keywords.add(sample.plant.toLowerCase())
+    })
+    
+    // Add IO number if exists
+    if (formData.useIONumber === 'yes' && formData.ioNumber) {
+      keywords.add(formData.ioNumber)
+    }
+    
+    return Array.from(keywords).slice(0, 8) // Limit to 8 keywords
+  }
+
+  // Add debug logging
+  console.log("NTRPage rendering, currentStep:", currentStep)
+  console.log("Samples:", formData.samples.length)
+  
   return (
     <DashboardLayout>
-      <div className="container mx-auto py-6 max-w-7xl">
-        <div className="mb-6">
-          <h1 className="text-3xl font-bold">
-            {isEditMode ? "Edit Normal Test Request (NTR)" : "Create Normal Test Request (NTR)"}
-          </h1>
-          <p className="text-muted-foreground">
-            {isEditMode
-              ? "Modify your existing test request details and samples"
-              : "Request standard polymer testing methods with predefined parameters and workflows"
-            }
-          </p>
-          {isEditMode && editRequestId && (
-            <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
-              <p className="text-sm text-blue-700">
-                <strong>Editing Request:</strong> {editRequestId}
+      <div className="min-h-screen bg-gray-50">
+        <div className="container mx-auto py-6 max-w-7xl">
+          {currentStep > 1 && (
+            <div className="mb-6">
+              <h1 className="text-3xl font-bold">
+                {isEditMode ? "Edit Normal Test Request (NTR)" : "Create Normal Test Request (NTR)"}
+              </h1>
+              <p className="text-muted-foreground">
+                {isEditMode
+                  ? "Modify your existing test request details and samples"
+                  : "Request standard polymer testing methods with predefined parameters and workflows"
+                }
               </p>
+              {isEditMode && editRequestId && (
+                <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                  <p className="text-sm text-blue-700">
+                    <strong>Editing Request:</strong> {editRequestId}
+                  </p>
+                </div>
+              )}
             </div>
           )}
-        </div>
 
         {/* Loading indicator for edit mode */}
         {isEditMode && loadingEditData && (
@@ -2160,19 +2437,21 @@ export default function NTRPage() {
           </div>
         )}
 
-        <div className="flex items-center space-x-4 mb-6">
-          <div className={`relative flex items-center justify-center h-10 w-10 rounded-full border ${currentStep >= 1 ? "bg-green-500 border-green-600 text-white" : "bg-muted border-muted-foreground/20 text-muted-foreground"}`}>
-            1
+        {currentStep > 1 && (
+          <div className="flex items-center space-x-4 mb-6">
+            <div className={`relative flex items-center justify-center h-10 w-10 rounded-full border ${currentStep >= 1 ? "bg-green-500 border-green-600 text-white" : "bg-muted border-muted-foreground/20 text-muted-foreground"}`}>
+              1
+            </div>
+            <div className={`h-px flex-1 ${currentStep >= 2 ? "bg-green-500" : "bg-muted"}`} />
+            <div className={`relative flex items-center justify-center h-10 w-10 rounded-full border ${currentStep >= 2 ? "bg-green-500 border-green-600 text-white" : "bg-muted border-muted-foreground/20 text-muted-foreground"}`}>
+              2
+            </div>
+            <div className={`h-px flex-1 ${currentStep >= 3 ? "bg-green-500" : "bg-muted"}`} />
+            <div className={`relative flex items-center justify-center h-10 w-10 rounded-full border ${currentStep >= 3 ? "bg-green-500 border-green-600 text-white" : "bg-muted border-muted-foreground/20 text-muted-foreground"}`}>
+              3
+            </div>
           </div>
-          <div className={`h-px flex-1 ${currentStep >= 2 ? "bg-green-500" : "bg-muted"}`} />
-          <div className={`relative flex items-center justify-center h-10 w-10 rounded-full border ${currentStep >= 2 ? "bg-green-500 border-green-600 text-white" : "bg-muted border-muted-foreground/20 text-muted-foreground"}`}>
-            2
-          </div>
-          <div className={`h-px flex-1 ${currentStep >= 3 ? "bg-green-500" : "bg-muted"}`} />
-          <div className={`relative flex items-center justify-center h-10 w-10 rounded-full border ${currentStep >= 3 ? "bg-green-500 border-green-600 text-white" : "bg-muted border-muted-foreground/20 text-muted-foreground"}`}>
-            3
-          </div>
-        </div>
+        )}
 
         <div className="grid gap-6 md:grid-cols-3">
           <div className="md:col-span-2">
@@ -2332,25 +2611,552 @@ export default function NTRPage() {
             )}
 
             {currentStep === 3 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Test Method Selection</CardTitle>
-                  <CardDescription>Select the test methods you want to apply to your samples</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Manual Selection</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Browse our comprehensive catalog of test methods and select the ones you need.
-                    </p>
-                    <Link href={`/request/new/ntr/test-methods${isEditMode ? `?edit=${editRequestId}` : ''}`}>
-                      <Button className="mt-2 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 w-full">
-                        {isEditMode ? "Edit Test Method Selection" : "Browse Test Method Catalog"}
-                      </Button>
-                    </Link>
-                  </div>
-                </CardContent>
-              </Card>
+              <div className="space-y-6">
+                <div className="p-4 bg-red-50 border-2 border-red-500 rounded">
+                  <h2 className="text-xl font-bold text-red-700">Step 3 Debug Mode</h2>
+                  <p>If you see this message, step 3 is rendering!</p>
+                  <p>Current Step: {currentStep}</p>
+                  <p>Samples: {formData.samples.length}</p>
+                </div>
+                
+                {/* Temporarily comment out the complex Card to isolate the issue */}
+                {/* <Card>
+                  <CardHeader>
+                    <CardTitle>Test Method Selection - Debug</CardTitle>
+                    <CardDescription>Step 3 is rendering. Samples: {formData.samples.length}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded">
+                      <p>Debug Info:</p>
+                      <p>Current Step: {currentStep}</p>
+                      <p>Samples Count: {formData.samples.length}</p>
+                      <p>Selected Samples: {selectedSamples.length}</p>
+                      <p>Test Methods: {formData.testMethods.length}</p>
+                    </div>
+                    Sample Selection Section
+                    <div className="space-y-3 pb-4 border-b">
+                      <div className="flex items-center justify-between">
+                        <Label>Sample Selection</Label>
+                        <div className="flex items-center space-x-2">
+                          <Checkbox
+                            id="select-all"
+                            checked={selectedSamples.length === formData.samples.length && formData.samples.length > 0}
+                            onCheckedChange={(checked) => {
+                              setSelectedSamples(checked ? formData.samples.map((_, index) => index) : [])
+                            }}
+                          />
+                          <Label htmlFor="select-all" className="text-sm cursor-pointer">
+                            Select All
+                          </Label>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {formData.samples.map((sample, index) => (
+                          <div key={sample.id || index} className="flex items-center space-x-2 p-2 border rounded hover:bg-gray-50">
+                            <Checkbox
+                              checked={selectedSamples.includes(index)}
+                              onCheckedChange={(checked) => {
+                                if (checked) {
+                                  setSelectedSamples([...selectedSamples, index])
+                                } else {
+                                  setSelectedSamples(selectedSamples.filter(i => i !== index))
+                                }
+                              }}
+                            />
+                            <Label className="text-sm cursor-pointer flex-1">
+                              {sample.generatedName || `Sample ${index + 1}`}
+                            </Label>
+                          </div>
+                        ))}
+                      </div>
+                      
+                      {selectedSamples.length > 0 && (
+                        <p className="text-sm text-green-600">
+                          {selectedSamples.length} sample(s) selected for testing
+                        </p>
+                      )}
+                    </div>
+                */}
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Test Method Selection</CardTitle>
+                    <CardDescription>Select test methods for your samples</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Two Column Layout for Test Methods */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {/* Available Test Methods Column */}
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <h4 className="font-medium">Available Test Methods</h4>
+                          <Link href={`/request/new/ntr/test-methods${isEditMode ? `?edit=${editRequestId}` : ''}`}>
+                            <Button size="sm" variant="outline">
+                              Browse All
+                            </Button>
+                          </Link>
+                        </div>
+                        
+                        {/* Filter Controls */}
+                        <div className="space-y-2">
+                          {/* Search Field */}
+                          <div className="relative">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            <Input
+                              placeholder="Search test methods..."
+                              value={testMethodSearch}
+                              onChange={(e) => setTestMethodSearch(e.target.value)}
+                              className="pl-9"
+                            />
+                          </div>
+                          
+                          {/* Capability and Equipment Dropdowns */}
+                          <div className="grid grid-cols-2 gap-2">
+                            <Select
+                              value={selectedCapability}
+                              onValueChange={setSelectedCapability}
+                              disabled={loadingCapabilities}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select Capability" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Capabilities</SelectItem>
+                                {capabilities.map((cap: any) => (
+                                  <SelectItem key={cap._id} value={cap._id}>
+                                    {cap.capabilityName || cap.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            
+                            <Select
+                              value={selectedEquipment}
+                              onValueChange={setSelectedEquipment}
+                              disabled={loadingEquipments || !selectedCapability}
+                            >
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select Equipment" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="all">All Equipment</SelectItem>
+                                {equipments.map((eq: any) => (
+                                  <SelectItem key={eq._id} value={eq._id}>
+                                    {eq.equipmentName || eq.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        </div>
+                        
+                        <div className="border rounded-lg p-4 h-[400px] bg-gray-50 overflow-y-auto">
+                          {loadingTestMethods ? (
+                            <div className="flex flex-col items-center justify-center h-full">
+                              <div className="animate-spin h-8 w-8 border-2 border-blue-500 rounded-full border-t-transparent mb-2"></div>
+                              <p className="text-sm text-muted-foreground">Loading test methods...</p>
+                            </div>
+                          ) : availableTestMethods && availableTestMethods.length > 0 ? (
+                            <div className="space-y-2">
+                              {availableTestMethods
+                                .filter(method => {
+                                  // Filter out already selected methods
+                                  if (formData.testMethods.some((tm: any) => (tm._id === method._id || tm.id === method.id))) {
+                                    return false
+                                  }
+                                  
+                                  // Apply search filter
+                                  if (testMethodSearch) {
+                                    const searchLower = testMethodSearch.toLowerCase()
+                                    const matchesSearch = 
+                                      method.name?.toLowerCase().includes(searchLower) ||
+                                      method.code?.toLowerCase().includes(searchLower) ||
+                                      method.description?.toLowerCase().includes(searchLower) ||
+                                      method.category?.toLowerCase().includes(searchLower)
+                                    if (!matchesSearch) return false
+                                  }
+                                  
+                                  // Apply capability filter
+                                  if (selectedCapability && selectedCapability !== 'all' && method.capability !== selectedCapability) {
+                                    return false
+                                  }
+                                  
+                                  // Apply equipment filter
+                                  if (selectedEquipment && selectedEquipment !== 'all' && method.equipment !== selectedEquipment) {
+                                    return false
+                                  }
+                                  
+                                  return true
+                                })
+                                .map((method: any) => (
+                                <div key={method.id} className="bg-white border rounded p-3 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex-1">
+                                      <div className="mb-1">
+                                        <p className="text-sm">
+                                          {method.methodcode && (
+                                            <span className="font-mono text-blue-600">{method.methodcode} - </span>
+                                          )}
+                                          <span className="font-medium">{method.testingName || method.name}</span>
+                                        </p>
+                                      </div>
+                                      
+                                      {(method.detailEng || method.keyResult) && (
+                                        <div className="mb-2">
+                                          <Button
+                                            size="sm"
+                                            variant="ghost"
+                                            className="h-6 px-2 text-xs"
+                                            onClick={() => {
+                                              const newExpanded = new Set(expandedMethods)
+                                              if (expandedMethods.has(method.id)) {
+                                                newExpanded.delete(method.id)
+                                              } else {
+                                                newExpanded.add(method.id)
+                                              }
+                                              setExpandedMethods(newExpanded)
+                                            }}
+                                          >
+                                            {expandedMethods.has(method.id) ? (
+                                              <>
+                                                <ChevronUp className="h-3 w-3 mr-1" />
+                                                Show less
+                                              </>
+                                            ) : (
+                                              <>
+                                                <ChevronDown className="h-3 w-3 mr-1" />
+                                                Read more
+                                              </>
+                                            )}
+                                          </Button>
+                                        </div>
+                                      )}
+                                      
+                                      {expandedMethods.has(method.id) && (
+                                        <div className="mb-2 p-2 bg-gray-50 rounded text-xs space-y-1">
+                                          {method.detailEng && (
+                                            <div>
+                                              <span className="font-semibold">Details:</span> {method.detailEng}
+                                            </div>
+                                          )}
+                                          {method.keyResult && (
+                                            <div>
+                                              <span className="font-semibold">Key Result:</span> {method.keyResult}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                      
+                                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-2">
+                                        {method.sampleAmount !== undefined && method.sampleAmount !== 0 && (
+                                          <div>Sample Amount: {method.sampleAmount} g or ML</div>
+                                        )}
+                                        {method.equipmentName && (
+                                          <div>Equipment: {method.equipmentName}</div>
+                                        )}
+                                        {method.capabilityName && (
+                                          <div>Capability: {method.capabilityName}</div>
+                                        )}
+                                        {(method.price || method.priorityPrice) && (
+                                          <div className="col-span-2">
+                                            {method.price && (
+                                              <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded mr-2">
+                                                Testing Price: ฿{method.price}
+                                              </span>
+                                            )}
+                                            {method.priorityPrice && (
+                                              <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">
+                                                Priority Price: ฿{method.priorityPrice}
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="text-green-600 hover:text-green-700"
+                                      onClick={() => {
+                                        // Add method with selected samples
+                                        const methodWithSamples = {
+                                          ...method,
+                                          selectedSamples: selectedSamples,
+                                          applicableSamples: selectedSamples
+                                        }
+                                        setFormData(prev => ({
+                                          ...prev,
+                                          testMethods: [...prev.testMethods, methodWithSamples]
+                                        }))
+                                      }}
+                                      disabled={!selectedSamples.length}
+                                      title={!selectedSamples.length ? "Please select samples first" : "Add test method"}
+                                    >
+                                      <Plus className="h-4 w-4" />
+                                    </Button>
+                                  </div>
+                                  
+                                  {/* Sample selection for this method */}
+                                  {selectedSamples.length > 0 && (
+                                    <div className="pl-2 space-y-1">
+                                      <p className="text-xs text-gray-600 mb-1">Apply to samples:</p>
+                                      <div className="flex flex-wrap gap-1">
+                                        {selectedSamples.map(sampleIndex => (
+                                          <Badge key={sampleIndex} variant="secondary" className="text-xs bg-gray-100 text-gray-600">
+                                            {formData.samples[sampleIndex]?.generatedName || `Sample ${sampleIndex + 1}`}
+                                          </Badge>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                              <p className="text-muted-foreground mb-3">No available test methods</p>
+                              <Link href={`/request/new/ntr/test-methods${isEditMode ? `?edit=${editRequestId}` : ''}`}>
+                                <Button size="sm" variant="outline">
+                                  Browse Catalog
+                                </Button>
+                              </Link>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Selected Test Methods Column */}
+                      <div className="space-y-3">
+                        <h4 className="font-medium">Selected Test Methods ({formData.testMethods.length})</h4>
+                        <div className="border rounded-lg p-4 min-h-[400px] bg-blue-50">
+                          {formData.testMethods.length > 0 ? (
+                            <div className="space-y-2">
+                              {formData.testMethods.map((method: any, index: number) => (
+                                <div key={index} className="bg-white border rounded p-3 space-y-2">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex-1">
+                                      <p className="font-medium text-sm">{method.name || method.testName || method.title || `Test Method ${index + 1}`}</p>
+                                      {(method.code || method.testCode) && (
+                                        <p className="text-xs text-muted-foreground">Code: {method.code || method.testCode}</p>
+                                      )}
+                                      {method.description && (
+                                        <p className="text-xs text-gray-600 line-clamp-2">{method.description}</p>
+                                      )}
+                                      <div className="flex gap-2 mt-1">
+                                        {method.category && (
+                                          <Badge variant="secondary" className="text-xs">
+                                            {method.category}
+                                          </Badge>
+                                        )}
+                                        {method.turnaroundTime && (
+                                          <Badge variant="outline" className="text-xs">
+                                            {method.turnaroundTime} days
+                                          </Badge>
+                                        )}
+                                        {method.price && (
+                                          <Badge variant="outline" className="text-xs">
+                                            ฿{method.price}
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <div className="flex items-center space-x-1">
+                                        <Checkbox
+                                          id={`urgent-${index}`}
+                                          checked={urgentSamples[index] || false}
+                                          onCheckedChange={(checked) => {
+                                            setUrgentSamples(prev => ({
+                                              ...prev,
+                                              [index]: checked as boolean
+                                            }))
+                                            if (!checked) {
+                                              setSampleDueDates(prev => {
+                                                const newDates = { ...prev }
+                                                delete newDates[index]
+                                                return newDates
+                                              })
+                                            }
+                                          }}
+                                        />
+                                        <Label htmlFor={`urgent-${index}`} className="text-xs cursor-pointer">
+                                          Urgent
+                                        </Label>
+                                      </div>
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-red-600 hover:text-red-700 h-7 w-7 p-0"
+                                        onClick={() => {
+                                          setFormData(prev => ({
+                                            ...prev,
+                                            testMethods: prev.testMethods.filter((_, i) => i !== index)
+                                          }))
+                                          // Also remove urgent status
+                                          setUrgentSamples(prev => {
+                                            const newUrgent = { ...prev }
+                                            delete newUrgent[index]
+                                            return newUrgent
+                                          })
+                                          setSampleDueDates(prev => {
+                                            const newDates = { ...prev }
+                                            delete newDates[index]
+                                            return newDates
+                                          })
+                                        }}
+                                      >
+                                        <X className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  </div>
+                                  
+                                  {/* Sample selection for this method */}
+                                  <div className="space-y-2">
+                                    <p className="text-xs text-gray-600">Applied to samples:</p>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(method.selectedSamples || selectedSamples).map((sampleIndex: number) => (
+                                        <div key={sampleIndex} className="flex items-center">
+                                          <Checkbox
+                                            checked={!method.deselectedSamples?.includes(sampleIndex)}
+                                            onCheckedChange={(checked) => {
+                                              setFormData(prev => ({
+                                                ...prev,
+                                                testMethods: prev.testMethods.map((tm, i) => {
+                                                  if (i === index) {
+                                                    const deselected = tm.deselectedSamples || []
+                                                    if (checked) {
+                                                      // Remove from deselected
+                                                      return {
+                                                        ...tm,
+                                                        deselectedSamples: deselected.filter(s => s !== sampleIndex)
+                                                      }
+                                                    } else {
+                                                      // Add to deselected
+                                                      return {
+                                                        ...tm,
+                                                        deselectedSamples: [...deselected, sampleIndex]
+                                                      }
+                                                    }
+                                                  }
+                                                  return tm
+                                                })
+                                              }))
+                                            }}
+                                            className="mr-1"
+                                          />
+                                          <Label className="text-xs cursor-pointer">
+                                            {formData.samples[sampleIndex]?.generatedName || `Sample ${sampleIndex + 1}`}
+                                          </Label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+
+                                  {/* Conditional Date Selection */}
+                                  {urgentSamples[index] && (
+                                    <div className="flex items-center space-x-2 p-2 bg-orange-50 rounded text-sm">
+                                      <Label className="text-xs">Expected Date:</Label>
+                                      <Popover>
+                                        <PopoverTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className={cn(
+                                              "h-7 text-xs",
+                                              !sampleDueDates[index] && "text-muted-foreground"
+                                            )}
+                                          >
+                                            <CalendarIcon className="mr-1 h-3 w-3" />
+                                            {sampleDueDates[index] ? format(sampleDueDates[index], "PP") : "Pick date"}
+                                          </Button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-auto p-0" align="start">
+                                          <Calendar
+                                            mode="single"
+                                            selected={sampleDueDates[index]}
+                                            onSelect={(date) => {
+                                              if (date) {
+                                                setSampleDueDates(prev => ({
+                                                  ...prev,
+                                                  [index]: date
+                                                }))
+                                              }
+                                            }}
+                                            disabled={(date) => {
+                                              const today = new Date()
+                                              today.setHours(0, 0, 0, 0)
+                                              const minDate = addBusinessDays(today, 5)
+                                              return date < minDate
+                                            }}
+                                            initialFocus
+                                          />
+                                        </PopoverContent>
+                                      </Popover>
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-center">
+                              <p className="text-muted-foreground">No test methods selected</p>
+                              <p className="text-xs text-muted-foreground mt-1">Select from available methods</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* Conditional Urgency Approval Section */}
+                {Object.values(urgentSamples).some(urgent => urgent) && (
+                  <Card className="mt-6 border-red-200 bg-red-50">
+                    <CardHeader className="bg-red-100 border-b border-red-200">
+                      <CardTitle className="text-red-900">Urgency Approval Required</CardTitle>
+                      <CardDescription className="text-red-700">
+                        You have marked one or more test methods as urgent. Please provide approval details.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4 pt-6">
+                      <div>
+                        <Label htmlFor="urgent-approver" className="text-sm font-medium">
+                          Approver <span className="text-red-500">*</span>
+                        </Label>
+                        <Select
+                          value={urgentApprover}
+                          onValueChange={setUrgentApprover}
+                        >
+                          <SelectTrigger id="urgent-approver" className="mt-2">
+                            <SelectValue placeholder="Select approver" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {approvers.map((approver) => (
+                              <SelectItem key={approver.value} value={approver.value}>
+                                {approver.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="urgent-justification" className="text-sm font-medium">
+                          Justification <span className="text-red-500">*</span>
+                        </Label>
+                        <Textarea
+                          id="urgent-justification"
+                          value={urgentJustification}
+                          onChange={(e) => setUrgentJustification(e.target.value)}
+                          placeholder="Please explain why these test methods need urgent processing"
+                          className="mt-2 min-h-[100px]"
+                        />
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
             )}
 
             <div className="mt-6 flex justify-between">
@@ -2380,7 +3186,7 @@ export default function NTRPage() {
 
           <div className="md:col-span-1">
             {/* Summary card */}
-            <Card className="mb-6">
+            <Card className="mb-6 sticky top-6">
               <CardHeader>
                 <CardTitle>Request Summary</CardTitle>
               </CardHeader>
@@ -2430,6 +3236,21 @@ export default function NTRPage() {
                       <p className="text-xs text-muted-foreground">Cost Center: {formData.onBehalfOfCostCenter || "Not available"}</p>
                     </div>
                   )}
+
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-2">Keywords</p>
+                    <div className="flex flex-wrap gap-1">
+                      {extractKeywords().length > 0 ? (
+                        extractKeywords().map((keyword, index) => (
+                          <Badge key={index} variant="secondary" className="text-xs">
+                            {keyword}
+                          </Badge>
+                        ))
+                      ) : (
+                        <p className="text-xs text-muted-foreground">No keywords yet</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -2937,6 +3758,7 @@ export default function NTRPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      </div>
     </DashboardLayout>
   )
 }

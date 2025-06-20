@@ -39,6 +39,10 @@ export interface IAsrList extends Document {
     costCenter?: string;
   };
   asrEvaluationScore?: string;
+  asrEvaluationData?: any;
+  isEvaluated?: boolean;
+  evaluationDate?: Date;
+  evaluatedBy?: string;
   asrLink?: string;
   asrPpcMemberList?: string;
   createdAt?: Date;

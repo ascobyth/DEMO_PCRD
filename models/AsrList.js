@@ -202,6 +202,29 @@ const AsrListSchema = new Schema(
       type: String,
       description: 'JSON string containing evaluation scores from requester'
     },
+    
+    // Detailed evaluation data
+    asrEvaluationData: {
+      type: Schema.Types.Mixed,
+      default: null,
+      description: 'Detailed evaluation data stored as JSON'
+    },
+    
+    isEvaluated: {
+      type: Boolean,
+      default: false,
+      description: 'Whether this ASR has been evaluated'
+    },
+    
+    evaluationDate: {
+      type: Date,
+      description: 'Date when the ASR was evaluated'
+    },
+    
+    evaluatedBy: {
+      type: String,
+      description: 'Email of the user who evaluated the ASR'
+    },
     asrLink: {
       type: String,
       description: 'Link to folder containing ASR results'

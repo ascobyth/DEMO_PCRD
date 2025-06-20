@@ -16,6 +16,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { Progress } from "@/components/ui/progress"
 import { toast } from "sonner"
 import { RequestViewDetailsDialog } from "@/components/request-view-details-dialog"
+import { AsrViewDetailsDialog } from "@/components/asr-view-details-dialog"
+import { AsrEvaluationDialog } from "@/components/asr-evaluation-dialog"
 import { EvaluationDialog } from "@/components/evaluation-dialog"
 import { ComplaintDialog } from "@/components/complaint-dialog"
 import { TerminateRequestDialog } from "@/components/terminate-request-dialog"
@@ -28,6 +30,7 @@ interface RequestData {
   requestNumber: string
   requestTitle: string
   requestStatus: string
+  requestType?: string
   priority: string
   useIoNumber: boolean
   ioNumber?: string
@@ -44,6 +47,20 @@ interface RequestData {
   evaluationScore?: number
   evaluationComment?: string
   evaluationDate?: string
+  capability?: string
+  // ASR-specific fields
+  asrType?: string
+  asrOwnerName?: string
+  asrOwnerEmail?: string
+  problemSource?: string
+  expectedResults?: string
+  businessImpact?: string
+  urgencyType?: string
+  urgencyReason?: string
+  asrEstCompletedDate?: string
+  asrMethodology?: string
+  approver?: string
+  asrRequireDate?: string
 }
 
 // Interface for transformed request data for UI
@@ -65,6 +82,17 @@ interface UIRequest {
   completedDate?: string
   ioNumber?: string
   useIoNumber: boolean
+  // ASR-specific fields
+  asrType?: string
+  asrOwnerName?: string
+  asrOwnerEmail?: string
+  problemSource?: string
+  expectedResults?: string
+  businessImpact?: string
+  urgencyType?: string
+  urgencyReason?: string
+  asrEstCompletedDate?: string
+  asrMethodology?: string
 }
 
 export default function DashboardPage() {
@@ -92,6 +120,8 @@ export default function DashboardPage() {
   // State for view details dialog
   const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = useState(false)
   const [selectedRequestForDetails, setSelectedRequestForDetails] = useState<UIRequest | null>(null)
+  const [asrDetailsDialogOpen, setAsrDetailsDialogOpen] = useState(false)
+  const [selectedAsrForDetails, setSelectedAsrForDetails] = useState<UIRequest | null>(null)
 
   // State for collapsible filter sections
   const [ioFilterExpanded, setIoFilterExpanded] = useState(false)
@@ -122,6 +152,8 @@ export default function DashboardPage() {
   // State for evaluation dialog
   const [evaluationDialogOpen, setEvaluationDialogOpen] = useState(false)
   const [selectedRequestForEvaluation, setSelectedRequestForEvaluation] = useState<UIRequest | null>(null)
+  const [asrEvaluationDialogOpen, setAsrEvaluationDialogOpen] = useState(false)
+  const [selectedAsrForEvaluation, setSelectedAsrForEvaluation] = useState<UIRequest | null>(null)
 
   // State for complaint dialog
   const [complaintDialogOpen, setComplaintDialogOpen] = useState(false)
@@ -290,14 +322,24 @@ export default function DashboardPage() {
 
   // Handle opening request details view
   const handleOpenRequestDetails = (request: UIRequest) => {
-    setSelectedRequestForDetails(request)
-    setViewDetailsDialogOpen(true)
+    if (request.type === 'ASR') {
+      setSelectedAsrForDetails(request)
+      setAsrDetailsDialogOpen(true)
+    } else {
+      setSelectedRequestForDetails(request)
+      setViewDetailsDialogOpen(true)
+    }
   }
 
   // Handle evaluation request
   const handleEvaluateRequest = (request: UIRequest) => {
-    setSelectedRequestForEvaluation(request)
-    setEvaluationDialogOpen(true)
+    if (request.type === 'ASR') {
+      setSelectedAsrForEvaluation(request)
+      setAsrEvaluationDialogOpen(true)
+    } else {
+      setSelectedRequestForEvaluation(request)
+      setEvaluationDialogOpen(true)
+    }
   }
 
   // Handle complaint
@@ -556,17 +598,19 @@ export default function DashboardPage() {
       console.warn('Failed to parse sample list:', e)
     }
 
-    // Parse testing methods from JSON string to get capability info
-    let capability = "General Testing"
-    try {
-      if (dbRequest.jsonTestingList) {
-        const testingData = JSON.parse(dbRequest.jsonTestingList)
-        if (testingData.length > 0) {
-          capability = testingData[0].capabilityName || "General Testing"
+    // Get capability from request data or parse from testing methods
+    let capability = dbRequest.capability || "General Testing"
+    if (!dbRequest.capability) {
+      try {
+        if (dbRequest.jsonTestingList) {
+          const testingData = JSON.parse(dbRequest.jsonTestingList)
+          if (testingData.length > 0) {
+            capability = testingData[0].capabilityName || "General Testing"
+          }
         }
+      } catch (e) {
+        console.warn('Failed to parse testing list:', e)
       }
-    } catch (e) {
-      console.warn('Failed to parse testing list:', e)
     }
 
     // Calculate progress and get equipment names from Testing Sample List
@@ -624,8 +668,12 @@ export default function DashboardPage() {
       progress = getProgress(dbRequest.requestStatus)
     }
 
-    // Determine request type from request number
-    const getRequestType = (requestNumber: string): string => {
+    // Determine request type from request data or request number
+    const getRequestType = (dbRequest: RequestData): string => {
+      // Use requestType from API if available
+      if (dbRequest.requestType) return dbRequest.requestType
+      // Fallback to parsing request number
+      const requestNumber = dbRequest.requestNumber
       if (requestNumber.includes('RE-N')) return 'NTR'
       if (requestNumber.includes('ASR')) return 'ASR'
       if (requestNumber.includes('ER')) return 'ER'
@@ -636,7 +684,7 @@ export default function DashboardPage() {
       id: dbRequest.requestNumber,
       requestNumber: dbRequest.requestNumber,
       title: dbRequest.requestTitle,
-      type: getRequestType(dbRequest.requestNumber),
+      type: getRequestType(dbRequest),
       status: dbRequest.requestStatus as any,
       priority: dbRequest.priority || 'normal',
       submittedDate: new Date(dbRequest.createdAt).toLocaleDateString(),
@@ -649,7 +697,18 @@ export default function DashboardPage() {
       evaluated: dbRequest.isEvaluated || false,
       completedDate: dbRequest.completeDate ? new Date(dbRequest.completeDate).toLocaleDateString() : undefined,
       ioNumber: dbRequest.ioNumber,
-      useIoNumber: dbRequest.useIoNumber
+      useIoNumber: dbRequest.useIoNumber,
+      // ASR-specific fields
+      asrType: dbRequest.asrType,
+      asrOwnerName: dbRequest.asrOwnerName,
+      asrOwnerEmail: dbRequest.asrOwnerEmail,
+      problemSource: dbRequest.problemSource,
+      expectedResults: dbRequest.expectedResults,
+      businessImpact: dbRequest.businessImpact,
+      urgencyType: dbRequest.urgencyType,
+      urgencyReason: dbRequest.urgencyReason,
+      asrEstCompletedDate: dbRequest.asrEstCompletedDate ? new Date(dbRequest.asrEstCompletedDate).toLocaleDateString() : undefined,
+      asrMethodology: dbRequest.asrMethodology
     }
   }
 
@@ -699,7 +758,7 @@ export default function DashboardPage() {
       }
 
       // Add user email filter and timestamp to prevent caching
-      const response = await fetch(`/api/requests?requesterEmail=${encodeURIComponent(user.email)}&t=${Date.now()}`)
+      const response = await fetch(`/api/requests/all?requesterEmail=${encodeURIComponent(user.email)}&t=${Date.now()}`)
       const result = await response.json()
 
       if (result.success && result.data) {
@@ -1403,7 +1462,7 @@ export default function DashboardPage() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <span className="font-bold text-yellow-600">
-                {userScore} evaluations
+                {userScore} Evaluations
               </span>
             )}
           </div>
@@ -1909,6 +1968,8 @@ export default function DashboardPage() {
                       const isPendingTooLong = request.status === 'Pending Receive' && 
                         new Date().getTime() - new Date(request.createdDate).getTime() > 3 * 24 * 60 * 60 * 1000;
                       
+                      const isAsrRequest = request.type === 'ASR';
+                      
                       return (
                       <div key={request.id} className={`flex flex-col space-y-2 rounded-lg border p-4 ${
                         isPendingTooLong ? 'bg-red-50 border-red-300 shadow-md' : ''
@@ -1937,6 +1998,12 @@ export default function DashboardPage() {
                             )}
                           </div>
                           <span className="text-sm font-medium">{request.title}</span>
+                          {/* Show ASR Type for ASR requests */}
+                          {isAsrRequest && (
+                            <span className="text-xs text-muted-foreground">
+                              ASR Type: {request.asrType || 'Project'} | Owner: {request.asrOwnerName || 'N/A'}
+                            </span>
+                          )}
                           
                           {/* Warning message for pending too long */}
                           {isPendingTooLong && (
@@ -1949,10 +2016,30 @@ export default function DashboardPage() {
                           )}
 
                           <div className="mt-2 space-y-3">
+                            {/* ASR-specific information */}
+                            {isAsrRequest && (
+                              <div className="space-y-2 p-2 bg-purple-50 rounded-md">
+                                <div className="text-xs">
+                                  <span className="font-medium text-purple-700">Problem Source:</span>
+                                  <span className="ml-1 text-purple-600">{request.problemSource || 'Not specified'}</span>
+                                </div>
+                                <div className="text-xs">
+                                  <span className="font-medium text-purple-700">Expected Results:</span>
+                                  <span className="ml-1 text-purple-600">{request.expectedResults || 'Not specified'}</span>
+                                </div>
+                                {request.urgencyType && (
+                                  <div className="text-xs">
+                                    <span className="font-medium text-purple-700">Urgency Type:</span>
+                                    <span className="ml-1 text-purple-600">{request.urgencyType.replace(/_/g, ' ')}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
                             {/* Samples Section with Expandable Button */}
                             <div className="flex flex-col">
                               <div className="flex items-center justify-between">
-                                <span className="text-xs font-medium text-muted-foreground">Samples</span>
+                                <span className="text-xs font-medium text-muted-foreground">{isAsrRequest ? 'ASR Samples' : 'Samples'}</span>
                                 {request.samples.length > 0 && (
                                   <Button
                                     variant="ghost"
@@ -2064,9 +2151,19 @@ export default function DashboardPage() {
 
                           <div className="flex items-center space-x-4 text-xs text-muted-foreground mt-2">
                             <span>Submitted: {request.submittedDate}</span>
-                            <span>Due: {request.dueDate}</span>
-                            {request.completedDate && <span>Completed: {request.completedDate}</span>}
-                            <span>Capability: {request.capability}</span>
+                            {isAsrRequest ? (
+                              <>
+                                <span>Est. Completion: {request.asrEstCompletedDate || request.dueDate}</span>
+                                {request.completedDate && <span>Completed: {request.completedDate}</span>}
+                                <span>Type: ASR - {request.asrType || 'Project'}</span>
+                              </>
+                            ) : (
+                              <>
+                                <span>Due: {request.dueDate}</span>
+                                {request.completedDate && <span>Completed: {request.completedDate}</span>}
+                                <span>Capability: {request.capability}</span>
+                              </>
+                            )}
                             {request.useIoNumber && request.ioNumber ? (
                               <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-700/10">
                                 IO: {request.ioNumber}
@@ -2111,22 +2208,24 @@ export default function DashboardPage() {
                                 <FileText className="mr-2 h-4 w-4" />
                                 View details
                               </DropdownMenuItem>
-                              <DropdownMenuSub>
-                                <DropdownMenuSubTrigger>
-                                  <Printer className="mr-2 h-4 w-4" />
-                                  Print Tag
-                                </DropdownMenuSubTrigger>
-                                <DropdownMenuSubContent>
-                                  <DropdownMenuItem onClick={() => handlePrintAllRequest(request.id)}>
-                                    <FileText className="mr-2 h-4 w-4" />
-                                    Print All Request
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => handlePrintSampleTag(request.id)}>
+                              {!isAsrRequest && (
+                                <DropdownMenuSub>
+                                  <DropdownMenuSubTrigger>
                                     <Printer className="mr-2 h-4 w-4" />
-                                    Print Sample Tag
-                                  </DropdownMenuItem>
-                                </DropdownMenuSubContent>
-                              </DropdownMenuSub>
+                                    Print Tag
+                                  </DropdownMenuSubTrigger>
+                                  <DropdownMenuSubContent>
+                                    <DropdownMenuItem onClick={() => handlePrintAllRequest(request.id)}>
+                                      <FileText className="mr-2 h-4 w-4" />
+                                      Print All Request
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => handlePrintSampleTag(request.id)}>
+                                      <Printer className="mr-2 h-4 w-4" />
+                                      Print Sample Tag
+                                    </DropdownMenuItem>
+                                  </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                              )}
                               {/* Edit Request - Only show for Pending Receive status */}
                               {request.status === "Pending Receive" && (
                                 <DropdownMenuItem onClick={() => handleEditRequest(request)} className="text-blue-600 hover:text-blue-700 hover:bg-blue-50">
@@ -2134,14 +2233,18 @@ export default function DashboardPage() {
                                   Edit Request
                                 </DropdownMenuItem>
                               )}
-                              <DropdownMenuItem>
-                                <Star className="mr-2 h-4 w-4" />
-                                Set as a request template
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDuplicateRequest(request)}>
-                                <Copy className="mr-2 h-4 w-4" />
-                                Duplicate Request
-                              </DropdownMenuItem>
+                              {!isAsrRequest && (
+                                <>
+                                  <DropdownMenuItem>
+                                    <Star className="mr-2 h-4 w-4" />
+                                    Set as a request template
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onClick={() => handleDuplicateRequest(request)}>
+                                    <Copy className="mr-2 h-4 w-4" />
+                                    Duplicate Request
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                               {/* Evaluate my Request - Show for all requests that haven't been evaluated */}
                               {!request.evaluated && (
                                 <DropdownMenuItem onClick={() => handleEvaluateRequest(request)} className="text-yellow-600 hover:text-yellow-700 hover:bg-yellow-50">
@@ -2357,6 +2460,15 @@ export default function DashboardPage() {
         />
       )}
 
+      {/* ASR details view dialog */}
+      {selectedAsrForDetails && (
+        <AsrViewDetailsDialog
+          asrData={selectedAsrForDetails}
+          open={asrDetailsDialogOpen}
+          onOpenChange={setAsrDetailsDialogOpen}
+        />
+      )}
+
       {/* Evaluation dialog */}
       {selectedRequestForEvaluation && (
         <EvaluationDialog
@@ -2364,7 +2476,19 @@ export default function DashboardPage() {
           onOpenChange={setEvaluationDialogOpen}
           requestId={selectedRequestForEvaluation.id}
           requestTitle={selectedRequestForEvaluation.title}
-          userEmail="user@example.com" // TODO: Get from auth context
+          userEmail={user?.email}
+          onEvaluationComplete={handleEvaluationComplete}
+        />
+      )}
+
+      {/* ASR Evaluation dialog */}
+      {selectedAsrForEvaluation && (
+        <AsrEvaluationDialog
+          open={asrEvaluationDialogOpen}
+          onOpenChange={setAsrEvaluationDialogOpen}
+          asrId={selectedAsrForEvaluation.id}
+          asrTitle={selectedAsrForEvaluation.title}
+          userEmail={user?.email}
           onEvaluationComplete={handleEvaluationComplete}
         />
       )}

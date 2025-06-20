@@ -19,6 +19,7 @@ import {
   X,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Wrench,
   AlertTriangle,
   FlaskConical,
@@ -127,7 +128,7 @@ function SidebarNav({ links, isCollapsed, setIsCollapsed }: SidebarNavProps) {
         className="absolute right-2 top-2 hidden h-6 w-6 group-hover:flex"
         onClick={() => setIsCollapsed(!isCollapsed)}
       >
-        {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
       </Button>
     </div>
   )
@@ -377,9 +378,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             isCollapsed={isCollapsed}
           />
         )}
-        <div className="flex flex-1">
+        <div className="flex flex-1 relative">
           <aside
-            className={`${isMobile ? "hidden" : "flex"} w-14 flex-col border-r bg-background transition-all ${
+            className={`${isMobile ? "hidden" : "flex"} w-14 flex-col border-r bg-background transition-all sticky top-0 h-screen overflow-y-auto ${
               isCollapsed ? "md:w-14" : "md:w-64"
             }`}
           >

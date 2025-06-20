@@ -6,6 +6,15 @@ interface RequestStatusBadgeProps {
 }
 
 function RequestStatusBadgeComponent({ status }: RequestStatusBadgeProps) {
+  // Handle undefined or null status
+  if (!status) {
+    return (
+      <Badge variant="outline" className="bg-gray-50 text-gray-600 border-gray-300">
+        Unknown
+      </Badge>
+    );
+  }
+  
   switch (status.toLowerCase()) {
     case "pending receive sample":
     case "pending receive":
