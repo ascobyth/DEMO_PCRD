@@ -92,6 +92,7 @@ export default function NTRPage() {
   const [editDataError, setEditDataError] = useState<string | null>(null)
 
   const [currentStep, setCurrentStep] = useState(1)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [formData, setFormData] = useState<FormData>({
     requestTitle: "",
     priority: "normal",
@@ -156,7 +157,11 @@ export default function NTRPage() {
   const [urgentSamples, setUrgentSamples] = useState<Record<number, boolean>>({})
   const [sampleDueDates, setSampleDueDates] = useState<Record<number, Date>>({})
   const [urgentApprover, setUrgentApprover] = useState("")
+  const [hiddenSamples, setHiddenSamples] = useState<Record<number, boolean>>({})
   const [urgentJustification, setUrgentJustification] = useState("")
+  const [urgencyType, setUrgencyType] = useState("")
+  const [selectedMaterials, setSelectedMaterials] = useState<Record<string, boolean>>({})
+  const [otherMaterialText, setOtherMaterialText] = useState("")
   const [availableTestMethods, setAvailableTestMethods] = useState<any[]>([])
   const [loadingTestMethods, setLoadingTestMethods] = useState(false)
   const [expandedMethods, setExpandedMethods] = useState<Set<string>>(new Set())
@@ -307,116 +312,75 @@ export default function NTRPage() {
     }
   }, [currentStep])
 
-  // Fetch equipment based on selected capability
+  // Extract equipment from filtered test methods only
   useEffect(() => {
-    const fetchEquipment = async () => {
-      try {
-        setLoadingEquipments(true)
-        setSelectedEquipment("") // Reset equipment selection
-        setEquipments([]) // Clear equipment list
-        
-        // First, try to fetch all equipment from the API
-        const response = await fetch('/api/equipment')
-        let allEquipment: any[] = []
-        
-        if (response.ok) {
-          const data = await response.json()
-          allEquipment = Array.isArray(data) ? data : data.data || []
-          console.log('All equipment from API:', allEquipment)
+    if (currentStep === 3 && availableTestMethods.length > 0) {
+      setLoadingEquipments(true)
+      setSelectedEquipment("") // Reset equipment selection
+      
+      const equipmentMap = new Map()
+      
+      // Get methods that are currently visible (after all filters except equipment)
+      const visibleMethods = availableTestMethods.filter(method => {
+        // Filter out already selected methods
+        if (formData.testMethods.some((tm: any) => (tm._id === method._id || tm.id === method.id))) {
+          return false
         }
         
-        if (selectedCapability && selectedCapability !== 'all' && availableTestMethods.length > 0) {
-          // Get unique equipment from test methods that belong to selected capability
-          const equipmentMap = new Map()
-          
-          console.log('Selected capability:', selectedCapability)
-          console.log('Available test methods:', availableTestMethods.length)
-          
-          const filteredMethods = availableTestMethods.filter(method => {
-            // Check various ways capability might be stored
-            const methodCapability = method.capabilityId || method.capability
-            return methodCapability === selectedCapability
-          })
-          
-          console.log('Methods for capability:', filteredMethods.length)
-          
-          // Create a set of equipment IDs used in filtered methods
-          const usedEquipmentIds = new Set()
-          filteredMethods.forEach(method => {
-            if (method.equipmentId) {
-              usedEquipmentIds.add(String(method.equipmentId))
-            }
-          })
-          
-          console.log('Used equipment IDs:', Array.from(usedEquipmentIds))
-          
-          // If we have equipment from API, filter it
-          if (allEquipment.length > 0) {
-            const filteredEquipment = allEquipment.filter(eq => 
-              usedEquipmentIds.has(String(eq._id)) || 
-              usedEquipmentIds.has(String(eq.equipmentId)) ||
-              usedEquipmentIds.has(String(eq.id))
-            )
-            console.log('Filtered equipment from API:', filteredEquipment)
-            setEquipments(filteredEquipment)
-          } else {
-            // Fallback: extract from test methods
-            filteredMethods.forEach(method => {
-              const equipmentId = method.equipmentId
-              const equipmentName = method.equipmentName
-              
-              if (equipmentId && equipmentName && !equipmentMap.has(equipmentId)) {
-                equipmentMap.set(equipmentId, {
-                  _id: equipmentId,
-                  equipmentId: equipmentId,
-                  name: equipmentName,
-                  equipmentName: equipmentName
-                })
-              }
-            })
-            
-            const equipmentList = Array.from(equipmentMap.values())
-            console.log('Equipment from methods:', equipmentList)
-            setEquipments(equipmentList)
-          }
-        } else {
-          // If "All Capabilities" is selected or no methods available, show all equipment
-          if (allEquipment.length > 0) {
-            setEquipments(allEquipment)
-          } else if (availableTestMethods.length > 0) {
-            // Fallback: extract all unique equipment from test methods
-            const equipmentMap = new Map()
-            
-            availableTestMethods.forEach(method => {
-              const equipmentId = method.equipmentId
-              const equipmentName = method.equipmentName
-              
-              if (equipmentId && equipmentName && !equipmentMap.has(equipmentId)) {
-                equipmentMap.set(equipmentId, {
-                  _id: equipmentId,
-                  equipmentId: equipmentId,
-                  name: equipmentName,
-                  equipmentName: equipmentName
-                })
-              }
-            })
-            
-            const equipmentList = Array.from(equipmentMap.values())
-            console.log('All equipment from methods:', equipmentList)
-            setEquipments(equipmentList)
+        // Apply search filter
+        if (testMethodSearch) {
+          const searchLower = testMethodSearch.toLowerCase()
+          const matchesSearch = 
+            method.name?.toLowerCase().includes(searchLower) ||
+            method.code?.toLowerCase().includes(searchLower) ||
+            method.description?.toLowerCase().includes(searchLower) ||
+            method.category?.toLowerCase().includes(searchLower) ||
+            method.testingName?.toLowerCase().includes(searchLower) ||
+            method.methodcode?.toLowerCase().includes(searchLower)
+          if (!matchesSearch) return false
+        }
+        
+        // Apply capability filter
+        if (selectedCapability && selectedCapability !== 'all') {
+          const methodCapability = method.capabilityId || method.capability
+          if (methodCapability !== selectedCapability) {
+            return false
           }
         }
-      } catch (error) {
-        console.error('Failed to process equipment:', error)
-      } finally {
-        setLoadingEquipments(false)
-      }
+        
+        return true
+      })
+      
+      // Extract unique equipment from visible methods only
+      visibleMethods.forEach(method => {
+        const equipmentId = method.equipmentId
+        const equipmentName = method.equipmentName
+        
+        if (equipmentId && equipmentName) {
+          const eqIdStr = String(equipmentId)
+          if (!equipmentMap.has(eqIdStr)) {
+            equipmentMap.set(eqIdStr, {
+              _id: eqIdStr,
+              equipmentId: eqIdStr,
+              name: equipmentName,
+              equipmentName: equipmentName
+            })
+          }
+        }
+      })
+      
+      const equipmentList = Array.from(equipmentMap.values()).sort((a, b) => 
+        (a.equipmentName || a.name).localeCompare(b.equipmentName || b.name)
+      )
+      
+      console.log('Equipment from visible methods:', equipmentList)
+      setEquipments(equipmentList)
+      setLoadingEquipments(false)
+    } else if (currentStep === 3) {
+      setEquipments([])
+      setLoadingEquipments(false)
     }
-
-    if (currentStep === 3) {
-      fetchEquipment()
-    }
-  }, [currentStep, selectedCapability, availableTestMethods])
+  }, [currentStep, selectedCapability, availableTestMethods, testMethodSearch, formData.testMethods])
 
   // Fetch polymer types when commercial grade is selected
   useEffect(() => {
@@ -2453,8 +2417,8 @@ export default function NTRPage() {
           </div>
         )}
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="md:col-span-2">
+        <div className="flex gap-6">
+          <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'md:mr-16' : ''}`}>
             {currentStep === 1 && (
               <RequestInformationForm
                 requestType="NTR"
@@ -2691,11 +2655,6 @@ export default function NTRPage() {
                       <div className="space-y-3">
                         <div className="flex justify-between items-center">
                           <h4 className="font-medium">Available Test Methods</h4>
-                          <Link href={`/request/new/ntr/test-methods${isEditMode ? `?edit=${editRequestId}` : ''}`}>
-                            <Button size="sm" variant="outline">
-                              Browse All
-                            </Button>
-                          </Link>
                         </div>
                         
                         {/* Filter Controls */}
@@ -2734,7 +2693,7 @@ export default function NTRPage() {
                             <Select
                               value={selectedEquipment}
                               onValueChange={setSelectedEquipment}
-                              disabled={loadingEquipments || !selectedCapability}
+                              disabled={loadingEquipments}
                             >
                               <SelectTrigger>
                                 <SelectValue placeholder="Select Equipment" />
@@ -2783,8 +2742,11 @@ export default function NTRPage() {
                                   }
                                   
                                   // Apply equipment filter
-                                  if (selectedEquipment && selectedEquipment !== 'all' && method.equipment !== selectedEquipment) {
-                                    return false
+                                  if (selectedEquipment && selectedEquipment !== 'all') {
+                                    const methodEquipmentId = String(method.equipmentId || '')
+                                    if (methodEquipmentId !== selectedEquipment) {
+                                      return false
+                                    }
                                   }
                                   
                                   return true
@@ -2795,10 +2757,9 @@ export default function NTRPage() {
                                     <div className="flex-1">
                                       <div className="mb-1">
                                         <p className="text-sm">
-                                          {method.methodcode && (
-                                            <span className="font-mono text-blue-600">{method.methodcode} - </span>
-                                          )}
-                                          <span className="font-medium">{method.testingName || method.name}</span>
+                                          <span className="font-medium">
+                                            {method.methodcode ? `${method.methodcode} - ${method.testingName || method.name}` : (method.testingName || method.name)}
+                                          </span>
                                         </p>
                                       </div>
                                       
@@ -2845,31 +2806,36 @@ export default function NTRPage() {
                                               <span className="font-semibold">Key Result:</span> {method.keyResult}
                                             </div>
                                           )}
+                                          {method.sampleAmount !== undefined && method.sampleAmount !== 0 && (
+                                            <div>
+                                              <span className="font-semibold">Sample Amount:</span> {method.sampleAmount} g or ML
+                                            </div>
+                                          )}
                                         </div>
                                       )}
                                       
-                                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600 mb-2">
-                                        {method.sampleAmount !== undefined && method.sampleAmount !== 0 && (
-                                          <div>Sample Amount: {method.sampleAmount} g or ML</div>
-                                        )}
+                                      <div className="space-y-1 text-xs text-gray-600 mb-2">
                                         {method.equipmentName && (
-                                          <div>Equipment: {method.equipmentName}</div>
+                                          <div className="flex items-center">
+                                            <span className="font-semibold mr-1">Equipment:</span>
+                                            <span>{method.equipmentName}</span>
+                                          </div>
                                         )}
                                         {method.capabilityName && (
-                                          <div>Capability: {method.capabilityName}</div>
+                                          <div className="flex items-center">
+                                            <span className="font-semibold mr-1">Capability:</span>
+                                            <span>{method.capabilityName}</span>
+                                          </div>
                                         )}
                                         {(method.price || method.priorityPrice) && (
-                                          <div className="col-span-2">
-                                            {method.price && (
-                                              <span className="bg-green-100 text-green-800 px-2 py-0.5 rounded mr-2">
-                                                Testing Price: ฿{method.price}
-                                              </span>
-                                            )}
-                                            {method.priorityPrice && (
-                                              <span className="bg-red-100 text-red-800 px-2 py-0.5 rounded">
-                                                Priority Price: ฿{method.priorityPrice}
-                                              </span>
-                                            )}
+                                          <div>
+                                            <span className="bg-gray-100 px-2 py-0.5 rounded inline-flex items-center gap-1">
+                                              <span className="font-medium">Normal/Urgent:</span>
+                                              <span className="text-green-600 font-semibold">{method.price || 0}</span>
+                                              <span>/</span>
+                                              <span className="text-red-500 font-semibold">{method.priorityPrice || method.price || 0}</span>
+                                              <span className="text-gray-600">THB</span>
+                                            </span>
                                           </div>
                                         )}
                                       </div>
@@ -2915,12 +2881,7 @@ export default function NTRPage() {
                             </div>
                           ) : (
                             <div className="flex flex-col items-center justify-center h-full text-center">
-                              <p className="text-muted-foreground mb-3">No available test methods</p>
-                              <Link href={`/request/new/ntr/test-methods${isEditMode ? `?edit=${editRequestId}` : ''}`}>
-                                <Button size="sm" variant="outline">
-                                  Browse Catalog
-                                </Button>
-                              </Link>
+                              <p className="text-muted-foreground">No available test methods found matching your criteria</p>
                             </div>
                           )}
                         </div>
@@ -2929,17 +2890,18 @@ export default function NTRPage() {
                       {/* Selected Test Methods Column */}
                       <div className="space-y-3">
                         <h4 className="font-medium">Selected Test Methods ({formData.testMethods.length})</h4>
-                        <div className="border rounded-lg p-4 min-h-[400px] bg-blue-50">
+                        <div className="border rounded-lg p-4 h-[400px] bg-blue-50 overflow-y-auto">
                           {formData.testMethods.length > 0 ? (
                             <div className="space-y-2">
                               {formData.testMethods.map((method: any, index: number) => (
                                 <div key={index} className="bg-white border rounded p-3 space-y-2">
                                   <div className="flex items-center justify-between">
                                     <div className="flex-1">
-                                      <p className="font-medium text-sm">{method.name || method.testName || method.title || `Test Method ${index + 1}`}</p>
-                                      {(method.code || method.testCode) && (
-                                        <p className="text-xs text-muted-foreground">Code: {method.code || method.testCode}</p>
-                                      )}
+                                      <p className="font-medium text-sm">
+                                        {method.methodcode || method.code || method.testCode ? 
+                                          `${method.methodcode || method.code || method.testCode} - ${method.testingName || method.name || method.testName || method.title}` : 
+                                          (method.testingName || method.name || method.testName || method.title || `Test Method ${index + 1}`)}
+                                      </p>
                                       {method.description && (
                                         <p className="text-xs text-gray-600 line-clamp-2">{method.description}</p>
                                       )}
@@ -2954,36 +2916,18 @@ export default function NTRPage() {
                                             {method.turnaroundTime} days
                                           </Badge>
                                         )}
-                                        {method.price && (
-                                          <Badge variant="outline" className="text-xs">
-                                            ฿{method.price}
-                                          </Badge>
+                                        {(method.price || method.priorityPrice) && (
+                                          <span className="bg-gray-100 px-2 py-0.5 rounded inline-flex items-center gap-1 text-xs">
+                                            <span className="font-medium">Normal/Urgent:</span>
+                                            <span className="text-green-600 font-semibold">{method.price || 0}</span>
+                                            <span>/</span>
+                                            <span className="text-red-500 font-semibold">{method.priorityPrice || method.price || 0}</span>
+                                            <span className="text-gray-600">THB</span>
+                                          </span>
                                         )}
                                       </div>
                                     </div>
                                     <div className="flex items-center gap-2">
-                                      <div className="flex items-center space-x-1">
-                                        <Checkbox
-                                          id={`urgent-${index}`}
-                                          checked={urgentSamples[index] || false}
-                                          onCheckedChange={(checked) => {
-                                            setUrgentSamples(prev => ({
-                                              ...prev,
-                                              [index]: checked as boolean
-                                            }))
-                                            if (!checked) {
-                                              setSampleDueDates(prev => {
-                                                const newDates = { ...prev }
-                                                delete newDates[index]
-                                                return newDates
-                                              })
-                                            }
-                                          }}
-                                        />
-                                        <Label htmlFor={`urgent-${index}`} className="text-xs cursor-pointer">
-                                          Urgent
-                                        </Label>
-                                      </div>
                                       <Button
                                         size="sm"
                                         variant="ghost"
@@ -3013,44 +2957,210 @@ export default function NTRPage() {
                                   
                                   {/* Sample selection for this method */}
                                   <div className="space-y-2">
-                                    <p className="text-xs text-gray-600">Applied to samples:</p>
-                                    <div className="flex flex-wrap gap-1">
-                                      {(method.selectedSamples || selectedSamples).map((sampleIndex: number) => (
-                                        <div key={sampleIndex} className="flex items-center">
-                                          <Checkbox
-                                            checked={!method.deselectedSamples?.includes(sampleIndex)}
-                                            onCheckedChange={(checked) => {
-                                              setFormData(prev => ({
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <p className="text-xs text-gray-600">Applied to samples:</p>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          className="h-6 px-2 text-xs"
+                                          onClick={() => setHiddenSamples(prev => ({ ...prev, [index]: !prev[index] }))}
+                                        >
+                                          {hiddenSamples[index] ? 'Show' : 'Hide'} samples
+                                        </Button>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Checkbox
+                                          id={`select-all-urgent-${index}`}
+                                          checked={(method.selectedSamples || selectedSamples).every((sampleIndex: number) => 
+                                            urgentSamples[`${index}-${sampleIndex}`] === true
+                                          )}
+                                          onCheckedChange={(checked) => {
+                                            const newUrgentSamples = { ...urgentSamples };
+                                            (method.selectedSamples || selectedSamples).forEach((sampleIndex: number) => {
+                                              if (!method.deselectedSamples?.includes(sampleIndex)) {
+                                                newUrgentSamples[`${index}-${sampleIndex}`] = checked as boolean;
+                                              }
+                                            });
+                                            setUrgentSamples(newUrgentSamples);
+                                            
+                                            // If any sample is urgent, set date
+                                            if (checked && !sampleDueDates[index]) {
+                                              setSampleDueDates(prev => ({
                                                 ...prev,
-                                                testMethods: prev.testMethods.map((tm, i) => {
-                                                  if (i === index) {
-                                                    const deselected = tm.deselectedSamples || []
-                                                    if (checked) {
-                                                      // Remove from deselected
-                                                      return {
-                                                        ...tm,
-                                                        deselectedSamples: deselected.filter(s => s !== sampleIndex)
-                                                      }
-                                                    } else {
-                                                      // Add to deselected
-                                                      return {
-                                                        ...tm,
-                                                        deselectedSamples: [...deselected, sampleIndex]
+                                                [index]: new Date()
+                                              }))
+                                            }
+                                          }}
+                                          className="border-red-500 data-[state=checked]:bg-red-100 data-[state=checked]:border-red-500"
+                                        />
+                                        <Label htmlFor={`select-all-urgent-${index}`} className="text-xs text-red-500 cursor-pointer">
+                                          Select all for urgent
+                                        </Label>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Expected date for urgent samples */}
+                                    {(method.selectedSamples || selectedSamples).some((sampleIndex: number) => 
+                                      urgentSamples[`${index}-${sampleIndex}`] === true
+                                    ) && (
+                                      <div className="flex items-center gap-2 p-2 bg-orange-50 rounded">
+                                        <Label className="text-xs">Expected date for urgent:</Label>
+                                        <Popover>
+                                          <PopoverTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              className={cn(
+                                                "h-7 text-xs",
+                                                !sampleDueDates[index] && "text-muted-foreground"
+                                              )}
+                                            >
+                                              <CalendarIcon className="mr-1 h-3 w-3" />
+                                              {sampleDueDates[index] ? format(sampleDueDates[index], "PP") : "Pick date"}
+                                            </Button>
+                                          </PopoverTrigger>
+                                          <PopoverContent className="w-auto p-0" align="start">
+                                            <Calendar
+                                              mode="single"
+                                              selected={sampleDueDates[index]}
+                                              onSelect={(date) => {
+                                                if (date) {
+                                                  setSampleDueDates(prev => ({
+                                                    ...prev,
+                                                    [index]: date
+                                                  }))
+                                                }
+                                              }}
+                                              initialFocus
+                                            />
+                                          </PopoverContent>
+                                        </Popover>
+                                      </div>
+                                    )}
+                                    
+                                    {!hiddenSamples[index] && (
+                                    <div className="space-y-1">
+                                      {(method.selectedSamples || selectedSamples).map((sampleIndex: number) => {
+                                        const isDeselected = method.deselectedSamples?.includes(sampleIndex);
+                                        const isUrgent = urgentSamples[`${index}-${sampleIndex}`];
+                                        const sampleName = formData.samples[sampleIndex]?.generatedName || `Sample ${sampleIndex + 1}`;
+                                        
+                                        return (
+                                          <div
+                                            key={sampleIndex}
+                                            className={`flex items-center gap-3 p-2 rounded-md border ${isDeselected ? 'bg-gray-50 opacity-50' : 'bg-white'}`}
+                                          >
+                                            <div className="flex flex-col items-center gap-1">
+                                              <Checkbox
+                                                id={`${index}-${sampleIndex}-normal`}
+                                                checked={!isDeselected && !isUrgent}
+                                                onCheckedChange={(checked) => {
+                                                  if (checked) {
+                                                    // Remove from urgent
+                                                    setUrgentSamples(prev => ({
+                                                      ...prev,
+                                                      [`${index}-${sampleIndex}`]: false
+                                                    }));
+                                                    // Remove from deselected
+                                                    setFormData(prev => ({
+                                                      ...prev,
+                                                      testMethods: prev.testMethods.map((tm, i) => {
+                                                        if (i === index) {
+                                                          return {
+                                                            ...tm,
+                                                            deselectedSamples: (tm.deselectedSamples || []).filter(s => s !== sampleIndex)
+                                                          };
+                                                        }
+                                                        return tm;
+                                                      })
+                                                    }));
+                                                  }
+                                                }}
+                                                className="border-green-500 data-[state=checked]:bg-green-100 data-[state=checked]:border-green-500 h-3 w-3"
+                                              />
+                                              <Label htmlFor={`${index}-${sampleIndex}-normal`} className="text-[10px] text-green-600 cursor-pointer">
+                                                Normal
+                                              </Label>
+                                            </div>
+                                            <div className="flex flex-col items-center gap-1">
+                                              <Checkbox
+                                                id={`${index}-${sampleIndex}-urgent`}
+                                                checked={!isDeselected && isUrgent}
+                                                onCheckedChange={(checked) => {
+                                                  if (checked) {
+                                                    // Set as urgent
+                                                    setUrgentSamples(prev => ({
+                                                      ...prev,
+                                                      [`${index}-${sampleIndex}`]: true
+                                                    }));
+                                                    // Remove from deselected
+                                                    setFormData(prev => ({
+                                                      ...prev,
+                                                      testMethods: prev.testMethods.map((tm, i) => {
+                                                        if (i === index) {
+                                                          return {
+                                                            ...tm,
+                                                            deselectedSamples: (tm.deselectedSamples || []).filter(s => s !== sampleIndex)
+                                                          };
+                                                        }
+                                                        return tm;
+                                                      })
+                                                    }));
+                                                  }
+                                                }}
+                                                className="border-red-500 data-[state=checked]:bg-red-100 data-[state=checked]:border-red-500 h-3 w-3"
+                                              />
+                                              <Label htmlFor={`${index}-${sampleIndex}-urgent`} className="text-[10px] text-red-500 cursor-pointer">
+                                                Urgent
+                                              </Label>
+                                            </div>
+                                            <span className={`flex-1 text-xs ${isDeselected ? 'line-through text-gray-400' : ''}`}>
+                                              {sampleName}
+                                            </span>
+                                            <button
+                                              onClick={() => {
+                                                setFormData(prev => ({
+                                                  ...prev,
+                                                  testMethods: prev.testMethods.map((tm, i) => {
+                                                    if (i === index) {
+                                                      const deselected = tm.deselectedSamples || [];
+                                                      if (isDeselected) {
+                                                        // Restore sample
+                                                        return {
+                                                          ...tm,
+                                                          deselectedSamples: deselected.filter(s => s !== sampleIndex)
+                                                        };
+                                                      } else {
+                                                        // Strike through sample
+                                                        return {
+                                                          ...tm,
+                                                          deselectedSamples: [...deselected, sampleIndex]
+                                                        };
                                                       }
                                                     }
-                                                  }
-                                                  return tm
-                                                })
-                                              }))
-                                            }}
-                                            className="mr-1"
-                                          />
-                                          <Label className="text-xs cursor-pointer">
-                                            {formData.samples[sampleIndex]?.generatedName || `Sample ${sampleIndex + 1}`}
-                                          </Label>
-                                        </div>
-                                      ))}
+                                                    return tm;
+                                                  })
+                                                }))
+                                              }}
+                                              className="text-gray-400 hover:text-red-500 transition-colors"
+                                              title={isDeselected ? "Restore sample" : "Remove sample"}
+                                            >
+                                              {isDeselected ? (
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                </svg>
+                                              ) : (
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                              )}
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
                                     </div>
+                                    )}
                                   </div>
 
                                   {/* Conditional Date Selection */}
@@ -3111,47 +3221,293 @@ export default function NTRPage() {
                 </Card>
 
                 {/* Conditional Urgency Approval Section */}
-                {Object.values(urgentSamples).some(urgent => urgent) && (
-                  <Card className="mt-6 border-red-200 bg-red-50">
-                    <CardHeader className="bg-red-100 border-b border-red-200">
+                {(() => {
+                  // Check if any sample in any method is marked as urgent
+                  const hasUrgentSamples = Object.keys(urgentSamples).some(key => {
+                    return urgentSamples[key] === true;
+                  });
+                  return hasUrgentSamples;
+                })() && (
+                  <Card className="mt-6 border-red-200 bg-[#FEF3F2]">
+                    <CardHeader>
                       <CardTitle className="text-red-900">Urgency Approval Required</CardTitle>
-                      <CardDescription className="text-red-700">
-                        You have marked one or more test methods as urgent. Please provide approval details.
-                      </CardDescription>
                     </CardHeader>
-                    <CardContent className="space-y-4 pt-6">
-                      <div>
-                        <Label htmlFor="urgent-approver" className="text-sm font-medium">
-                          Approver <span className="text-red-500">*</span>
-                        </Label>
-                        <Select
-                          value={urgentApprover}
-                          onValueChange={setUrgentApprover}
-                        >
-                          <SelectTrigger id="urgent-approver" className="mt-2">
-                            <SelectValue placeholder="Select approver" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {approvers.map((approver) => (
-                              <SelectItem key={approver.value} value={approver.value}>
-                                {approver.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                    <CardContent className="space-y-6">
+                      {/* Section 1: Urgency Details */}
+                      <div className="space-y-4">
+                        <h3 className="font-semibold text-lg">Urgency Details</h3>
+                        
+                        <div>
+                          <Label htmlFor="urgency-type" className="text-sm font-medium">
+                            1. Urgency Type <span className="text-red-500">*</span>
+                          </Label>
+                          <Select
+                            value={urgencyType}
+                            onValueChange={setUrgencyType}
+                          >
+                            <SelectTrigger id="urgency-type" className="mt-2">
+                              <SelectValue placeholder="Select urgency type" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="customer-complaint">Customer Complaint / Quality Claim</SelectItem>
+                              <SelectItem value="production-issue">Production / Plant Issue Resolution</SelectItem>
+                              <SelectItem value="critical-deadline">Critical Project Deadline</SelectItem>
+                              <SelectItem value="rd-support">Product Development / R&D Support</SelectItem>
+                              <SelectItem value="regulatory">Regulatory & Compliance Requirement</SelectItem>
+                              <SelectItem value="other">Other</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div>
+                          <Label htmlFor="urgent-justification" className="text-sm font-medium">
+                            2. Justification & Business Impact <span className="text-red-500">*</span>
+                          </Label>
+                          <Textarea
+                            id="urgent-justification"
+                            value={urgentJustification}
+                            onChange={(e) => setUrgentJustification(e.target.value)}
+                            placeholder="Please explain the business impact if testing is delayed (e.g., production line stoppage, customer complaint resolution, regulatory deadline)"
+                            className="mt-2 min-h-[100px]"
+                          />
+                        </div>
                       </div>
 
-                      <div>
-                        <Label htmlFor="urgent-justification" className="text-sm font-medium">
-                          Justification <span className="text-red-500">*</span>
-                        </Label>
-                        <Textarea
-                          id="urgent-justification"
-                          value={urgentJustification}
-                          onChange={(e) => setUrgentJustification(e.target.value)}
-                          placeholder="Please explain why these test methods need urgent processing"
-                          className="mt-2 min-h-[100px]"
-                        />
+                      {/* Section 2: Material & Source Identification */}
+                      <div className="space-y-4">
+                        <h3 className="font-semibold text-lg">Material & Source Identification</h3>
+                        <div>
+                          <Label className="text-sm font-medium">
+                            3. Related Material(s) / Source(s) (Select all that apply) <span className="text-red-500">*</span>
+                          </Label>
+                          
+                          <div className="mt-3 p-4 border rounded-lg bg-white space-y-3">
+                            {/* Polyethylene (PE) */}
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <Checkbox
+                                  id="material-pe"
+                                  checked={selectedMaterials['pe'] || false}
+                                  onCheckedChange={(checked) => {
+                                    setSelectedMaterials(prev => ({ ...prev, pe: checked as boolean }))
+                                    if (!checked) {
+                                      // Uncheck all PE sub-options when unchecking PE
+                                      setSelectedMaterials(prev => {
+                                        const newState = { ...prev };
+                                        ['pe-hd1', 'pe-hd2', 'pe-hd3', 'pe-hd4', 'pe-pilot', 'pe-lab', 'pe-benchmark', 'pe-customer'].forEach(key => {
+                                          delete newState[key];
+                                        });
+                                        return newState;
+                                      });
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor="material-pe" className="font-medium cursor-pointer">
+                                  Polyethylene (PE)
+                                </Label>
+                              </div>
+                              
+                              {selectedMaterials['pe'] && (
+                                <div className="ml-6 mt-2 space-y-2">
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-700">Plant / Line:</p>
+                                    <div className="flex flex-wrap gap-3 mt-1">
+                                      {['HD1', 'HD2', 'HD3', 'HD4', 'Pilot', 'Lab'].map((plant) => (
+                                        <div key={`pe-${plant.toLowerCase()}`} className="flex items-center space-x-2">
+                                          <Checkbox
+                                            id={`pe-${plant.toLowerCase()}`}
+                                            checked={selectedMaterials[`pe-${plant.toLowerCase()}`] || false}
+                                            onCheckedChange={(checked) => 
+                                              setSelectedMaterials(prev => ({ ...prev, [`pe-${plant.toLowerCase()}`]: checked as boolean }))
+                                            }
+                                          />
+                                          <Label htmlFor={`pe-${plant.toLowerCase()}`} className="text-sm cursor-pointer">
+                                            {plant}
+                                          </Label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-700">Source:</p>
+                                    <div className="flex flex-wrap gap-3 mt-1">
+                                      <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id="pe-benchmark"
+                                          checked={selectedMaterials['pe-benchmark'] || false}
+                                          onCheckedChange={(checked) => 
+                                            setSelectedMaterials(prev => ({ ...prev, 'pe-benchmark': checked as boolean }))
+                                          }
+                                        />
+                                        <Label htmlFor="pe-benchmark" className="text-sm cursor-pointer">
+                                          Benchmark/Competitors
+                                        </Label>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id="pe-customer"
+                                          checked={selectedMaterials['pe-customer'] || false}
+                                          onCheckedChange={(checked) => 
+                                            setSelectedMaterials(prev => ({ ...prev, 'pe-customer': checked as boolean }))
+                                          }
+                                        />
+                                        <Label htmlFor="pe-customer" className="text-sm cursor-pointer">
+                                          Customer/Unknown
+                                        </Label>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Polypropylene (PP) */}
+                            <div>
+                              <div className="flex items-center space-x-2">
+                                <Checkbox
+                                  id="material-pp"
+                                  checked={selectedMaterials['pp'] || false}
+                                  onCheckedChange={(checked) => {
+                                    setSelectedMaterials(prev => ({ ...prev, pp: checked as boolean }))
+                                    if (!checked) {
+                                      // Uncheck all PP sub-options when unchecking PP
+                                      setSelectedMaterials(prev => {
+                                        const newState = { ...prev };
+                                        ['pp-pp1', 'pp-pp2', 'pp-pp3', 'pp-pilotpp', 'pp-lab', 'pp-benchmark', 'pp-customer'].forEach(key => {
+                                          delete newState[key];
+                                        });
+                                        return newState;
+                                      });
+                                    }
+                                  }}
+                                />
+                                <Label htmlFor="material-pp" className="font-medium cursor-pointer">
+                                  Polypropylene (PP)
+                                </Label>
+                              </div>
+                              
+                              {selectedMaterials['pp'] && (
+                                <div className="ml-6 mt-2 space-y-2">
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-700">Plant / Line:</p>
+                                    <div className="flex flex-wrap gap-3 mt-1">
+                                      {['PP1', 'PP2', 'PP3', 'PilotPP', 'Lab'].map((plant) => (
+                                        <div key={`pp-${plant.toLowerCase()}`} className="flex items-center space-x-2">
+                                          <Checkbox
+                                            id={`pp-${plant.toLowerCase()}`}
+                                            checked={selectedMaterials[`pp-${plant.toLowerCase()}`] || false}
+                                            onCheckedChange={(checked) => 
+                                              setSelectedMaterials(prev => ({ ...prev, [`pp-${plant.toLowerCase()}`]: checked as boolean }))
+                                            }
+                                          />
+                                          <Label htmlFor={`pp-${plant.toLowerCase()}`} className="text-sm cursor-pointer">
+                                            {plant}
+                                          </Label>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-medium text-gray-700">Source:</p>
+                                    <div className="flex flex-wrap gap-3 mt-1">
+                                      <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id="pp-benchmark"
+                                          checked={selectedMaterials['pp-benchmark'] || false}
+                                          onCheckedChange={(checked) => 
+                                            setSelectedMaterials(prev => ({ ...prev, 'pp-benchmark': checked as boolean }))
+                                          }
+                                        />
+                                        <Label htmlFor="pp-benchmark" className="text-sm cursor-pointer">
+                                          Benchmark/Competitors
+                                        </Label>
+                                      </div>
+                                      <div className="flex items-center space-x-2">
+                                        <Checkbox
+                                          id="pp-customer"
+                                          checked={selectedMaterials['pp-customer'] || false}
+                                          onCheckedChange={(checked) => 
+                                            setSelectedMaterials(prev => ({ ...prev, 'pp-customer': checked as boolean }))
+                                          }
+                                        />
+                                        <Label htmlFor="pp-customer" className="text-sm cursor-pointer">
+                                          Customer/Unknown
+                                        </Label>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Catalyst */}
+                            <div className="flex items-center space-x-2">
+                              <Checkbox
+                                id="material-catalyst"
+                                checked={selectedMaterials['catalyst'] || false}
+                                onCheckedChange={(checked) => 
+                                  setSelectedMaterials(prev => ({ ...prev, catalyst: checked as boolean }))
+                                }
+                              />
+                              <Label htmlFor="material-catalyst" className="font-medium cursor-pointer">
+                                Catalyst
+                              </Label>
+                            </div>
+
+                            {/* Chemicals / Substance */}
+                            <div className="flex items-center space-x-2">
+                              <Checkbox
+                                id="material-chemicals"
+                                checked={selectedMaterials['chemicals'] || false}
+                                onCheckedChange={(checked) => 
+                                  setSelectedMaterials(prev => ({ ...prev, chemicals: checked as boolean }))
+                                }
+                              />
+                              <Label htmlFor="material-chemicals" className="font-medium cursor-pointer">
+                                Chemicals / Substance
+                              </Label>
+                            </div>
+
+                            {/* Unknown */}
+                            <div className="flex items-center space-x-2">
+                              <Checkbox
+                                id="material-unknown"
+                                checked={selectedMaterials['unknown'] || false}
+                                onCheckedChange={(checked) => 
+                                  setSelectedMaterials(prev => ({ ...prev, unknown: checked as boolean }))
+                                }
+                              />
+                              <Label htmlFor="material-unknown" className="font-medium cursor-pointer">
+                                Unknown
+                              </Label>
+                            </div>
+
+                            {/* Other Material */}
+                            <div className="space-y-2">
+                              <div className="flex items-center space-x-2">
+                                <Checkbox
+                                  id="material-other"
+                                  checked={selectedMaterials['other'] || false}
+                                  onCheckedChange={(checked) => 
+                                    setSelectedMaterials(prev => ({ ...prev, other: checked as boolean }))
+                                  }
+                                />
+                                <Label htmlFor="material-other" className="font-medium cursor-pointer">
+                                  Other Material (Please Specify):
+                                </Label>
+                              </div>
+                              {selectedMaterials['other'] && (
+                                <Input
+                                  type="text"
+                                  value={otherMaterialText}
+                                  onChange={(e) => setOtherMaterialText(e.target.value)}
+                                  placeholder="Specify other material"
+                                  className="ml-6 max-w-sm"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </CardContent>
                   </Card>
@@ -3184,7 +3540,20 @@ export default function NTRPage() {
             </div>
           </div>
 
-          <div className="md:col-span-1">
+          <div className={`${isSidebarCollapsed ? 'w-12' : 'w-80'} transition-all duration-300 relative`}>
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="absolute -left-3 top-4 z-10 bg-white border rounded-full p-1 shadow-md hover:shadow-lg transition-shadow"
+              title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {isSidebarCollapsed ? (
+                <ChevronLeft className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+            
+            <div className={`${isSidebarCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'} transition-opacity duration-300`}>
             {/* Summary card */}
             <Card className="mb-6 sticky top-6">
               <CardHeader>
@@ -3210,13 +3579,48 @@ export default function NTRPage() {
                   </div>
 
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Samples</p>
-                    <p className="text-2xl font-bold">{formData.samples.length}</p>
+                    <p className="text-sm font-medium text-muted-foreground">Total Samples</p>
+                    <p className="text-lg font-bold">{formData.samples.length}</p>
                   </div>
 
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Test Methods</p>
-                    <p className="text-2xl font-bold">{formData.testMethods.length}</p>
+                    <p className="text-sm font-medium text-muted-foreground">Total Test Methods</p>
+                    <p className="text-lg font-bold">{formData.testMethods.length}</p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Total Testing Cost</p>
+                    <p className="text-lg font-bold">
+                      {(() => {
+                        let totalCost = 0;
+                        formData.testMethods.forEach((method: any, methodIndex: number) => {
+                          const normalPrice = typeof method.price === 'string' 
+                            ? parseFloat(method.price.replace(/,/g, '')) 
+                            : Number(method.price) || 0;
+                          const urgentPrice = typeof method.priorityPrice === 'string' 
+                            ? parseFloat(method.priorityPrice.replace(/,/g, '')) 
+                            : Number(method.priorityPrice) || normalPrice;
+                          
+                          // Count urgent vs normal samples for this method
+                          (method.selectedSamples || []).forEach((sampleIndex: number) => {
+                            if (!method.deselectedSamples?.includes(sampleIndex)) {
+                              const isUrgent = urgentSamples[`${methodIndex}-${sampleIndex}`];
+                              totalCost += isUrgent ? urgentPrice : normalPrice;
+                            }
+                          });
+                        });
+                        return totalCost.toLocaleString('en-US');
+                      })()} THB
+                    </p>
+                  </div>
+                  
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Expected Complete Date</p>
+                    <p className="text-lg font-bold">
+                      {formData.testMethods.length > 0
+                        ? `${Math.max(...formData.testMethods.map((m: any) => m.turnaroundTime || m.turnaround || 7))} days`
+                        : "N/A"}
+                    </p>
                   </div>
 
                   {formData.priority === "urgent" && formData.approver && (
@@ -3254,6 +3658,7 @@ export default function NTRPage() {
                 </div>
               </CardContent>
             </Card>
+            </div>
           </div>
         </div>
       </div>

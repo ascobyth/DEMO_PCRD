@@ -6,7 +6,7 @@ import { useState, useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSearchParams } from "next/navigation"
-import { ChevronLeft, Search, Info } from "lucide-react"
+import { ChevronLeft, Search, Info, ChevronRight } from "lucide-react"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -52,6 +52,9 @@ export default function TestMethodCatalogPage() {
 
   // State to track deselected samples for each method
   const [deselectedSamples, setDeselectedSamples] = useState<Record<string, string[]>>({})
+  
+  // State to track urgent samples for each method
+  const [urgentSamples, setUrgentSamples] = useState<Record<string, string[]>>({})
 
   // Log deselectedSamples state changes
   useEffect(() => {
@@ -128,6 +131,7 @@ export default function TestMethodCatalogPage() {
             // Store the capability name for display
             capabilityName: method.capabilityId ? method.capabilityId.capabilityName || '' : '',
             price: method.price || method.cost || 0,
+            priorityPrice: method.priorityPrice || method.price || method.cost || 0,
             turnaround: method.analysisLeadtime || method.resultAnalysisTime || method.turnaround || method.duration || 7,
             sampleAmount: method.sampleAmount || 0,
             unit: method.unit || '',
@@ -325,6 +329,16 @@ export default function TestMethodCatalogPage() {
     } catch (error) {
       console.error("Error loading data:", error)
     }
+    
+    // Load urgent samples state
+    try {
+      const savedUrgentSamples = localStorage.getItem("ntrUrgentSamples")
+      if (savedUrgentSamples) {
+        setUrgentSamples(JSON.parse(savedUrgentSamples))
+      }
+    } catch (error) {
+      console.error("Error loading urgent samples:", error)
+    }
   }, [])
 
   // State for filtering and search
@@ -332,6 +346,7 @@ export default function TestMethodCatalogPage() {
   const [searchQuery, setSearchQuery] = useState("")
   // currentMethodId and currentInstanceIndex were removed as we no longer need the Sample Selection Dialog
   const [showOnlySelected, setShowOnlySelected] = useState(false)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
 
   // Update activeCategory when edit/duplicate mode capability is loaded
   useEffect(() => {
@@ -339,6 +354,27 @@ export default function TestMethodCatalogPage() {
       setActiveCategory(editModeCapability)
     }
   }, [isEditMode, isDuplicateMode, editModeCapability])
+
+  // Group methods by equipment
+  const groupMethodsByEquipment = (methods: any[]) => {
+    const grouped = methods.reduce((acc, method) => {
+      const equipmentKey = method.equipmentName || 'Other Methods';
+      if (!acc[equipmentKey]) {
+        acc[equipmentKey] = [];
+      }
+      acc[equipmentKey].push(method);
+      return acc;
+    }, {} as Record<string, any[]>);
+    
+    // Sort equipment names alphabetically, with 'Other Methods' at the end
+    const sortedKeys = Object.keys(grouped).sort((a, b) => {
+      if (a === 'Other Methods') return 1;
+      if (b === 'Other Methods') return -1;
+      return a.localeCompare(b);
+    });
+    
+    return sortedKeys.map(key => ({ equipment: key, methods: grouped[key] }));
+  };
 
   // Filter methods based on category and search query
   const filteredMethods = testMethods.filter((method) => {
@@ -635,11 +671,19 @@ export default function TestMethodCatalogPage() {
           return {
             ...method,
             samples: filteredSamples,
-            instances: filteredInstances
+            instances: filteredInstances,
+            urgentSamples: urgentSamples[method.id] || [],
+            instanceUrgentSamples: method.instances.map((_, index) => {
+              const instanceKey = `${method.id}-instance-${index}`;
+              return urgentSamples[instanceKey] || [];
+            })
           };
         });
 
       localStorage.setItem("ntrTestMethods", JSON.stringify(selectedTestMethods))
+      
+      // Save urgent samples state
+      localStorage.setItem("ntrUrgentSamples", JSON.stringify(urgentSamples))
     } catch (error) {
       console.error("Error saving test methods to localStorage:", error)
     }
@@ -722,8 +766,8 @@ export default function TestMethodCatalogPage() {
           )}
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <div className="md:col-span-2 space-y-6">
+        <div className="flex gap-6">
+          <div className={`flex-1 space-y-6 transition-all duration-300 ${isSidebarCollapsed ? 'md:mr-16' : ''}`}>
             {/* Search and filter */}
             <div className="flex flex-col md:flex-row gap-4">
               <div className="relative flex-1">
@@ -777,14 +821,6 @@ export default function TestMethodCatalogPage() {
                 <div className="flex justify-between items-center">
                   <CardTitle>Available Test Methods</CardTitle>
                   <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowOnlySelected(!showOnlySelected)}
-                      className={showOnlySelected ? "bg-primary/10" : ""}
-                    >
-                      {showOnlySelected ? "Show All Methods" : "Show Selected Methods"}
-                    </Button>
                     <Badge variant="outline" className="bg-primary/10">
                       {selectedMethodsCount} selected
                     </Badge>
@@ -816,7 +852,10 @@ export default function TestMethodCatalogPage() {
                       <p className="text-muted-foreground">No test methods found matching your criteria</p>
                     </div>
                   ) : (
-                    filteredMethods.map((method) => (
+                    groupMethodsByEquipment(filteredMethods).map((group) => (
+                      <div key={group.equipment} className="space-y-4">
+                        <h3 className="text-lg font-semibold text-primary border-b pb-2">{group.equipment}</h3>
+                        {group.methods.map((method) => (
                       <div
                         key={method.id}
                         className={`border rounded-lg p-4 transition-all ${
@@ -836,16 +875,19 @@ export default function TestMethodCatalogPage() {
                             <div>
                               <div className="flex items-center gap-2">
                                 <Label htmlFor={`method-${method.id}`} className="text-base font-medium cursor-pointer">
-                                  {method.name}
+                                  {method.methodCode} - {method.name}
                                 </Label>
                               </div>
                               <p className="text-sm text-muted-foreground mt-1">{method.description}</p>
                               <div className="flex flex-wrap gap-2 mt-2">
-                                <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
-                                  {method.methodCode || method.category}
-                                </Badge>
-                                <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                                  {method.price} {method.unit || 'THB'}
+                                <Badge variant="outline">
+                                  <span className="flex items-center gap-1">
+                                    <span className="font-medium">Normal/Urgent:</span>
+                                    <span className="text-green-600 font-semibold">{method.price}</span>
+                                    <span>/</span>
+                                    <span className="text-red-500 font-semibold">{method.priorityPrice || method.price}</span>
+                                    <span className="text-gray-600">{method.unit || 'THB'}</span>
+                                  </span>
                                 </Badge>
                                 <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
                                   {method.turnaround} days
@@ -853,11 +895,6 @@ export default function TestMethodCatalogPage() {
                                 {method.sampleAmount > 0 && (
                                   <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-200">
                                     Sample: {method.sampleAmount} g/ml
-                                  </Badge>
-                                )}
-                                {method.equipmentName && (
-                                  <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200">
-                                    Equipment: {method.equipmentName}
                                   </Badge>
                                 )}
                               </div>
@@ -912,34 +949,114 @@ export default function TestMethodCatalogPage() {
 
                               {method.samples.length > 0 && (
                                 <div className="mt-3">
-                                  <div className="flex items-center gap-1 mb-1">
-                                    <p className="text-sm font-medium">Selected Samples:</p>
-                                    <p className="text-xs text-muted-foreground">(Click to include/exclude samples)</p>
+                                  <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-1">
+                                      <p className="text-sm font-medium">Selected Samples:</p>
+                                      <p className="text-xs text-muted-foreground">(Click to include/exclude samples)</p>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Checkbox
+                                        id={`${method.id}-select-all-urgent`}
+                                        checked={method.samples.every(s => urgentSamples[method.id]?.includes(s))}
+                                        onCheckedChange={(checked) => {
+                                          if (checked) {
+                                            // Set all non-deselected samples as urgent
+                                            const activeSamples = method.samples.filter(s => !deselectedSamples[method.id]?.includes(s));
+                                            setUrgentSamples(prev => ({
+                                              ...prev,
+                                              [method.id]: activeSamples
+                                            }));
+                                          } else {
+                                            // Remove all samples from urgent
+                                            setUrgentSamples(prev => ({
+                                              ...prev,
+                                              [method.id]: []
+                                            }));
+                                          }
+                                        }}
+                                        className="border-red-500 data-[state=checked]:bg-red-100 data-[state=checked]:border-red-500"
+                                      />
+                                      <Label htmlFor={`${method.id}-select-all-urgent`} className="text-xs text-red-500 cursor-pointer">
+                                        Select all for urgent
+                                      </Label>
+                                    </div>
                                   </div>
-                                  <div className="flex flex-wrap gap-1">
+                                  <div className="space-y-2">
                                     {method.samples.map((sample, index) => {
                                       const isDeselected = deselectedSamples[method.id]?.includes(sample);
+                                      const isUrgent = urgentSamples[method.id]?.includes(sample);
                                       console.log(`Rendering sample ${sample} for method ${method.id}, isDeselected: ${isDeselected}`);
                                       return (
                                         <div
                                           key={`${method.id}-sample-${index}`}
-                                          onClick={() => toggleSampleSelection(method.id, sample)}
-                                          className="inline-block transition-transform hover:scale-105"
-                                          role="button"
-                                          tabIndex={0}
-                                          onKeyDown={(e) => {
-                                            if (e.key === 'Enter' || e.key === ' ') {
-                                              e.preventDefault();
-                                              toggleSampleSelection(method.id, sample);
-                                            }
-                                          }}
+                                          className={`flex items-center gap-3 p-2 rounded-md border ${isDeselected ? 'bg-gray-50 opacity-50' : 'bg-white'}`}
                                         >
-                                          <Badge
-                                            variant="outline"
-                                            className={`${isDeselected ? 'bg-red-100 text-red-700 border-red-300 font-medium decoration-2 line-through decoration-red-700' : 'bg-gray-100'} cursor-pointer hover:bg-gray-200 transition-colors hover:shadow-sm active:scale-95`}
-                                          >
+                                          <div className="flex items-center gap-2">
+                                            <Checkbox
+                                              id={`${method.id}-sample-${index}-normal`}
+                                              checked={!isDeselected && !isUrgent}
+                                              onCheckedChange={(checked) => {
+                                                if (checked) {
+                                                  // Remove from urgent if it was urgent
+                                                  setUrgentSamples(prev => ({
+                                                    ...prev,
+                                                    [method.id]: (prev[method.id] || []).filter(s => s !== sample)
+                                                  }));
+                                                  // Remove from deselected
+                                                  setDeselectedSamples(prev => ({
+                                                    ...prev,
+                                                    [method.id]: (prev[method.id] || []).filter(s => s !== sample)
+                                                  }));
+                                                }
+                                              }}
+                                              className="border-green-500 data-[state=checked]:bg-green-100 data-[state=checked]:border-green-500"
+                                            />
+                                            <Label htmlFor={`${method.id}-sample-${index}-normal`} className="text-xs text-green-600 cursor-pointer">
+                                              Normal
+                                            </Label>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <Checkbox
+                                              id={`${method.id}-sample-${index}-urgent`}
+                                              checked={!isDeselected && isUrgent}
+                                              onCheckedChange={(checked) => {
+                                                if (checked) {
+                                                  // Add to urgent
+                                                  setUrgentSamples(prev => ({
+                                                    ...prev,
+                                                    [method.id]: [...(prev[method.id] || []), sample]
+                                                  }));
+                                                  // Remove from deselected
+                                                  setDeselectedSamples(prev => ({
+                                                    ...prev,
+                                                    [method.id]: (prev[method.id] || []).filter(s => s !== sample)
+                                                  }));
+                                                }
+                                              }}
+                                              className="border-red-500 data-[state=checked]:bg-red-100 data-[state=checked]:border-red-500"
+                                            />
+                                            <Label htmlFor={`${method.id}-sample-${index}-urgent`} className="text-xs text-red-500 cursor-pointer">
+                                              Urgent
+                                            </Label>
+                                          </div>
+                                          <span className={`flex-1 text-sm ${isDeselected ? 'line-through text-gray-400' : ''}`}>
                                             {sample}
-                                          </Badge>
+                                          </span>
+                                          <button
+                                            onClick={() => toggleSampleSelection(method.id, sample)}
+                                            className="text-gray-400 hover:text-red-500 transition-colors"
+                                            title={isDeselected ? "Restore sample" : "Remove sample"}
+                                          >
+                                            {isDeselected ? (
+                                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                              </svg>
+                                            ) : (
+                                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                              </svg>
+                                            )}
+                                          </button>
                                         </div>
                                       );
                                     })}
@@ -975,36 +1092,123 @@ export default function TestMethodCatalogPage() {
 
                                     {instance.samples && instance.samples.length > 0 && (
                                       <div className="mt-2">
-                                        <div className="flex items-center gap-1 mb-1">
-                                          <p className="text-xs font-medium">Selected Samples:</p>
-                                          <p className="text-xs text-muted-foreground">(Click to include/exclude samples)</p>
+                                        <div className="flex items-center justify-between mb-2">
+                                          <div className="flex items-center gap-1">
+                                            <p className="text-xs font-medium">Selected Samples:</p>
+                                            <p className="text-xs text-muted-foreground">(Click to include/exclude samples)</p>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <Checkbox
+                                              id={`${method.id}-instance-${index}-select-all-urgent`}
+                                              checked={instance.samples.every(s => {
+                                                const sampleName = typeof s === "string" ? s : s.name;
+                                                const instanceKey = `${method.id}-instance-${index}`;
+                                                return urgentSamples[instanceKey]?.includes(sampleName);
+                                              })}
+                                              onCheckedChange={(checked) => {
+                                                const instanceKey = `${method.id}-instance-${index}`;
+                                                if (checked) {
+                                                  // Set all non-deselected samples as urgent
+                                                  const activeSamples = instance.samples
+                                                    .map(s => typeof s === "string" ? s : s.name)
+                                                    .filter(s => !deselectedSamples[instanceKey]?.includes(s));
+                                                  setUrgentSamples(prev => ({
+                                                    ...prev,
+                                                    [instanceKey]: activeSamples
+                                                  }));
+                                                } else {
+                                                  // Remove all samples from urgent
+                                                  setUrgentSamples(prev => ({
+                                                    ...prev,
+                                                    [instanceKey]: []
+                                                  }));
+                                                }
+                                              }}
+                                              className="border-red-500 data-[state=checked]:bg-red-100 data-[state=checked]:border-red-500"
+                                            />
+                                            <Label htmlFor={`${method.id}-instance-${index}-select-all-urgent`} className="text-xs text-red-500 cursor-pointer">
+                                              Select all for urgent
+                                            </Label>
+                                          </div>
                                         </div>
-                                        <div className="flex flex-wrap gap-1">
+                                        <div className="space-y-2">
                                           {instance.samples.map((sample, sampleIndex) => {
                                             const sampleName = typeof sample === "string" ? sample : sample.name;
                                             const instanceKey = `${method.id}-instance-${index}`;
                                             const isDeselected = deselectedSamples[instanceKey]?.includes(sampleName);
+                                            const isUrgent = urgentSamples[instanceKey]?.includes(sampleName);
 
                                             return (
                                               <div
                                                 key={`instance-${index}-sample-${sampleIndex}`}
-                                                onClick={() => toggleSampleSelection(method.id, sampleName, index)}
-                                                className="inline-block transition-transform hover:scale-105"
-                                                role="button"
-                                                tabIndex={0}
-                                                onKeyDown={(e) => {
-                                                  if (e.key === 'Enter' || e.key === ' ') {
-                                                    e.preventDefault();
-                                                    toggleSampleSelection(method.id, sampleName, index);
-                                                  }
-                                                }}
+                                                className={`flex items-center gap-3 p-2 rounded-md border ${isDeselected ? 'bg-gray-50 opacity-50' : 'bg-white'}`}
                                               >
-                                                <Badge
-                                                  variant="outline"
-                                                  className={`${isDeselected ? 'bg-red-100 text-red-700 border-red-300 font-medium decoration-2 line-through decoration-red-700' : 'bg-gray-100'} cursor-pointer hover:bg-gray-200 transition-colors hover:shadow-sm active:scale-95`}
-                                                >
+                                                <div className="flex items-center gap-2">
+                                                  <Checkbox
+                                                    id={`${instanceKey}-sample-${sampleIndex}-normal`}
+                                                    checked={!isDeselected && !isUrgent}
+                                                    onCheckedChange={(checked) => {
+                                                      if (checked) {
+                                                        // Remove from urgent if it was urgent
+                                                        setUrgentSamples(prev => ({
+                                                          ...prev,
+                                                          [instanceKey]: (prev[instanceKey] || []).filter(s => s !== sampleName)
+                                                        }));
+                                                        // Remove from deselected
+                                                        setDeselectedSamples(prev => ({
+                                                          ...prev,
+                                                          [instanceKey]: (prev[instanceKey] || []).filter(s => s !== sampleName)
+                                                        }));
+                                                      }
+                                                    }}
+                                                    className="border-green-500 data-[state=checked]:bg-green-100 data-[state=checked]:border-green-500"
+                                                  />
+                                                  <Label htmlFor={`${instanceKey}-sample-${sampleIndex}-normal`} className="text-xs text-green-600 cursor-pointer">
+                                                    Normal
+                                                  </Label>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                  <Checkbox
+                                                    id={`${instanceKey}-sample-${sampleIndex}-urgent`}
+                                                    checked={!isDeselected && isUrgent}
+                                                    onCheckedChange={(checked) => {
+                                                      if (checked) {
+                                                        // Add to urgent
+                                                        setUrgentSamples(prev => ({
+                                                          ...prev,
+                                                          [instanceKey]: [...(prev[instanceKey] || []), sampleName]
+                                                        }));
+                                                        // Remove from deselected
+                                                        setDeselectedSamples(prev => ({
+                                                          ...prev,
+                                                          [instanceKey]: (prev[instanceKey] || []).filter(s => s !== sampleName)
+                                                        }));
+                                                      }
+                                                    }}
+                                                    className="border-red-500 data-[state=checked]:bg-red-100 data-[state=checked]:border-red-500"
+                                                  />
+                                                  <Label htmlFor={`${instanceKey}-sample-${sampleIndex}-urgent`} className="text-xs text-red-500 cursor-pointer">
+                                                    Urgent
+                                                  </Label>
+                                                </div>
+                                                <span className={`flex-1 text-sm ${isDeselected ? 'line-through text-gray-400' : ''}`}>
                                                   {sampleName}
-                                                </Badge>
+                                                </span>
+                                                <button
+                                                  onClick={() => toggleSampleSelection(method.id, sampleName, index)}
+                                                  className="text-gray-400 hover:text-red-500 transition-colors"
+                                                  title={isDeselected ? "Restore sample" : "Remove sample"}
+                                                >
+                                                  {isDeselected ? (
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                  ) : (
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                  )}
+                                                </button>
                                               </div>
                                             );
                                           })}
@@ -1033,6 +1237,8 @@ export default function TestMethodCatalogPage() {
                           </div>
                         )}
                       </div>
+                    ))}
+                      </div>
                     ))
                   )}
                 </div>
@@ -1040,7 +1246,20 @@ export default function TestMethodCatalogPage() {
             </Card>
           </div>
 
-          <div className="md:col-span-1">
+          <div className={`${isSidebarCollapsed ? 'w-12' : 'w-80'} transition-all duration-300 relative`}>
+            <button
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="absolute -left-3 top-4 z-10 bg-white border rounded-full p-1 shadow-md hover:shadow-lg transition-shadow"
+              title={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            >
+              {isSidebarCollapsed ? (
+                <ChevronLeft className="h-4 w-4" />
+              ) : (
+                <ChevronRight className="h-4 w-4" />
+              )}
+            </button>
+            
+            <div className={`${isSidebarCollapsed ? 'opacity-0 pointer-events-none' : 'opacity-100'} transition-opacity duration-300`}>
             {/* Request Info card */}
             <Card className="mb-6">
               <CardHeader>
@@ -1069,38 +1288,76 @@ export default function TestMethodCatalogPage() {
             {/* Summary card */}
             <Card className="mb-6">
               <CardHeader>
-                <CardTitle>Selection Summary</CardTitle>
+                <CardTitle>Request Summary</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
+                <div className="space-y-3">
                   <div>
-                    <p className="text-sm font-medium">Selected Methods</p>
-                    <p className="text-2xl font-bold">{selectedMethodsCount}</p>
+                    <p className="text-xs font-medium text-muted-foreground">Request Title</p>
+                    <p className="text-sm font-semibold">{formData.requestTitle || "Not specified"}</p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium">Total Estimated Cost</p>
-                    <p className="text-2xl font-bold">
+                    <p className="text-xs font-medium text-muted-foreground">IO Number</p>
+                    <p className="text-sm font-semibold">
+                      {formData.useIONumber === "yes" ? formData.ioNumber || "Not selected" : "Not using IO"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Total Samples</p>
+                    <p className="text-sm font-semibold">{samples.length}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Total Test Methods</p>
+                    <p className="text-sm font-semibold">{selectedMethodsCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-muted-foreground">Total Testing Cost</p>
+                    <p className="text-sm font-semibold">
                       {testMethods
                         .filter((m) => m.selected || m.instances.length > 0)
                         .reduce((sum, method) => {
-                          // Convert price to number, handle string prices
-                          const price = typeof method.price === 'string' 
+                          // Calculate cost based on normal/urgent samples
+                          const normalPrice = typeof method.price === 'string' 
                             ? parseFloat(method.price.replace(/,/g, '')) 
                             : Number(method.price) || 0;
+                          const urgentPrice = typeof method.priorityPrice === 'string' 
+                            ? parseFloat(method.priorityPrice.replace(/,/g, '')) 
+                            : Number(method.priorityPrice) || normalPrice;
                           
-                          let methodCost = method.selected ? price : 0
-                          methodCost += method.instances.reduce(
-                            (instanceSum, instance) => instanceSum + price,
-                            0,
-                          )
-                          return sum + methodCost
+                          let methodCost = 0;
+                          
+                          if (method.selected) {
+                            // Count normal vs urgent samples
+                            const urgentCount = (urgentSamples[method.id] || []).length;
+                            const normalCount = method.samples.filter(s => 
+                              !deselectedSamples[method.id]?.includes(s) && 
+                              !urgentSamples[method.id]?.includes(s)
+                            ).length;
+                            
+                            methodCost += (normalCount * normalPrice) + (urgentCount * urgentPrice);
+                          }
+                          
+                          // Add instance costs
+                          method.instances.forEach((instance, idx) => {
+                            const instanceKey = `${method.id}-instance-${idx}`;
+                            const instanceUrgentCount = (urgentSamples[instanceKey] || []).length;
+                            const instanceNormalCount = instance.samples.filter(s => {
+                              const sampleName = typeof s === 'string' ? s : s.name;
+                              return !deselectedSamples[instanceKey]?.includes(sampleName) && 
+                                     !urgentSamples[instanceKey]?.includes(sampleName);
+                            }).length;
+                            
+                            methodCost += (instanceNormalCount * normalPrice) + (instanceUrgentCount * urgentPrice);
+                          });
+                          
+                          return sum + methodCost;
                         }, 0).toLocaleString('en-US')}{" "}
                       THB
                     </p>
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Expected Completion Date</p>
-                    <p className="text-2xl font-bold">
+                    <p className="text-xs font-medium text-muted-foreground">Expected Complete Date</p>
+                    <p className="text-sm font-semibold">
                       {testMethods.filter((m) => m.selected || m.instances.length > 0).length > 0
                         ? `${Math.max(...testMethods.filter((m) => m.selected || m.instances.length > 0).map((m) => m.turnaround))} days`
                         : "N/A"}
@@ -1124,6 +1381,7 @@ export default function TestMethodCatalogPage() {
                 </Link>
               </CardContent>
             </Card>
+            </div>
           </div>
         </div>
       </div>
