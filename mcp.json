@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "mongodb": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@centbytes/mcp-mongodb@latest",
+        "mongodb://localhost:27017/smr_augment"
+      ]
+    }
+  }
+}

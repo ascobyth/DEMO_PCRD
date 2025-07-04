@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Test Methods Cache</title>
+</head>
+<body>
+    <h1>Clear Test Methods Cache</h1>
+    <button onclick="clearCache()">Clear Test Methods from LocalStorage</button>
+    <div id="result"></div>
+    
+    <script>
+        function clearCache() {
+            try {
+                // Remove test methods from localStorage
+                localStorage.removeItem('ntrTestMethods');
+                localStorage.removeItem('smartAssistantRecommendations');
+                
+                document.getElementById('result').innerHTML = '<p style="color: green;">Test methods cache cleared successfully! Please refresh the test methods page.</p>';
+            } catch (error) {
+                document.getElementById('result').innerHTML = '<p style="color: red;">Error: ' + error.message + '</p>';
+            }
+        }
+    </script>
+</body>
+</html>

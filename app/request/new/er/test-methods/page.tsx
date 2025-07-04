@@ -23,7 +23,7 @@ import { SampleSelectionList } from "@/components/sample-selection-list"
 import { ChevronDown, ChevronUp, Trash2, X, Plus, CalendarIcon, ChevronRight } from "lucide-react"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { CustomDatePicker } from "@/components/ui/custom-date-picker"
+import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { cn } from "@/lib/utils"
 
@@ -73,7 +73,6 @@ export default function TestMethodCatalogPage() {
   
   // State for urgent completion date
   const [urgentCompletionDate, setUrgentCompletionDate] = useState<Date>()
-  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
   // State for controlling Available Test Methods visibility
   const [showAvailableMethods, setShowAvailableMethods] = useState(false)
@@ -112,18 +111,19 @@ export default function TestMethodCatalogPage() {
         }
         
         // Check instance samples
-        method.instances.forEach((instance, index) => {
-          const instanceKey = `${method.id}-instance-${index}`
+        for (let i = 0; i < method.instances.length; i++) {
+          const instance = method.instances[i]
+          const instanceKey = `${method.id}-instance-${i}`
           const activeSamples = instance.samples.filter(
             sample => !deselectedSamples[instanceKey]?.includes(sample)
           )
           
           for (const sample of activeSamples) {
-            const sampleKey = `${method.id}-instance-${index}-${sample}`
+            const sampleKey = `${method.id}-instance-${i}-${sample}`
             const samplePriority = samplePriorities[method.id]?.[sampleKey] || globalPriority
             if (samplePriority === 'urgent') return true
           }
-        })
+        }
       }
     }
     
@@ -228,8 +228,11 @@ export default function TestMethodCatalogPage() {
         const data = await response.json()
         // Check if the response has a data property (API returns { success: true, data: [...] })
         if (data && data.success && Array.isArray(data.data)) {
+          console.log('Test Methods API response data:', data)
           // Map the data to include required properties for the UI
           const formattedMethods = data.data.map((method) => {
+            console.log('Raw method from API:', method);
+            console.log('PriorityPrice value:', method.priorityPrice);
             return {
               id: method._id || method.id || `method-${Math.random().toString(36).substr(2, 9)}`,
               name: method.testingName || method.methodName || method.name || 'Unnamed Method',
@@ -261,7 +264,7 @@ export default function TestMethodCatalogPage() {
 
           // After fetching methods from API, check if we have saved methods in localStorage
           try {
-            const savedTestMethods = localStorage.getItem("ntrTestMethods")
+            const savedTestMethods = localStorage.getItem("erTestMethods")
             if (savedTestMethods) {
               const parsedTestMethods = JSON.parse(savedTestMethods)
               console.log("Loaded saved test methods:", parsedTestMethods)
@@ -358,7 +361,7 @@ export default function TestMethodCatalogPage() {
 
     // Load form data from localStorage
     try {
-      const savedFormData = localStorage.getItem("ntrFormData")
+      const savedFormData = localStorage.getItem("erFormData")
       if (savedFormData) {
         const parsedFormData = JSON.parse(savedFormData)
         console.log("Loaded form data:", parsedFormData)
@@ -373,25 +376,20 @@ export default function TestMethodCatalogPage() {
 
     // Load samples from localStorage
     try {
-      // Load samples
-      const savedSamples = localStorage.getItem("ntrSamples")
+      const savedSamples = localStorage.getItem("erSamples")
       if (savedSamples) {
         const parsedSamples = JSON.parse(savedSamples)
-        
-        // Check if samples array is empty
-        if (!parsedSamples || parsedSamples.length === 0) {
-          console.warn("No samples found in localStorage, redirecting back...")
-          // Redirect using Next.js router
-          const queryParams = new URLSearchParams()
-          queryParams.set('step', '2')
-          if (isEditMode && editRequestId) {
-            queryParams.set('edit', editRequestId)
-          } else if (isDuplicateMode && duplicateRequestId) {
-            queryParams.set('duplicate', duplicateRequestId)
-          }
-          router.push(`/request/new/ntr?${queryParams.toString()}`)
-          return
-        }
+        setSamples(parsedSamples)
+      }
+    } catch (error) {
+      console.error("Error loading samples from localStorage:", error)
+    }
+
+    try {
+      // Load samples
+      const savedSamples = localStorage.getItem("erSamples")
+      if (savedSamples) {
+        const parsedSamples = JSON.parse(savedSamples)
         // Transform the samples to the format needed for this page
         const formattedSamples = parsedSamples.map((sample: any, index: number) => ({
           id: (index + 1).toString(),
@@ -447,17 +445,6 @@ export default function TestMethodCatalogPage() {
             description: `${parsedRecommendations.length} test methods have been selected based on your requirements.`,
           })
         }
-      } else {
-        // No samples in localStorage at all
-        console.warn("No samples data in localStorage, redirecting back...")
-        const queryParams = new URLSearchParams()
-        queryParams.set('step', '2')
-        if (isEditMode && editRequestId) {
-          queryParams.set('edit', editRequestId)
-        } else if (isDuplicateMode && duplicateRequestId) {
-          queryParams.set('duplicate', duplicateRequestId)
-        }
-        router.push(`/request/new/ntr?${queryParams.toString()}`)
       }
     } catch (error) {
       console.error("Error loading data:", error)
@@ -465,12 +452,12 @@ export default function TestMethodCatalogPage() {
     
     // Load sample priorities and requirements
     try {
-      const savedPriorities = localStorage.getItem("ntrSamplePriorities")
+      const savedPriorities = localStorage.getItem("erSamplePriorities")
       if (savedPriorities) {
         setSamplePriorities(JSON.parse(savedPriorities))
       }
       
-      const savedRequirements = localStorage.getItem("ntrSampleRequirements")
+      const savedRequirements = localStorage.getItem("erSampleRequirements")
       if (savedRequirements) {
         setSampleRequirements(JSON.parse(savedRequirements))
       }
@@ -1073,27 +1060,7 @@ export default function TestMethodCatalogPage() {
         return newKeywords.map(k => existingMap.get(k.text) || k)
       })
     }
-  }, [formData.requestTitle, formData.priority, formData.useIONumber, formData.ioNumber, samples])
-  
-  // Handler for adding new keyword
-  const handleAddKeyword = () => {
-    if (newKeyword.trim() && keywords.length < 12) {
-      setKeywords(prev => [...prev, {
-        id: `keyword-${Date.now()}`,
-        text: newKeyword.trim().toLowerCase(),
-        active: true
-      }])
-      setNewKeyword('')
-      setShowKeywordInput(false)
-    }
-  }
-  
-  // Handler for toggling keyword active state
-  const toggleKeyword = (id: string) => {
-    setKeywords(prev => prev.map(k => 
-      k.id === id ? { ...k, active: !k.active } : k
-    ))
-  }
+  }, [formData, samples])
 
   const handleSaveAndContinue = () => {
     // Save selected test methods to localStorage
@@ -1137,20 +1104,11 @@ export default function TestMethodCatalogPage() {
           };
         });
 
-      localStorage.setItem("ntrTestMethods", JSON.stringify(selectedTestMethods))
+      localStorage.setItem("erTestMethods", JSON.stringify(selectedTestMethods))
       
       // Save sample priorities and requirements
-      localStorage.setItem("ntrSamplePriorities", JSON.stringify(samplePriorities))
-      localStorage.setItem("ntrSampleRequirements", JSON.stringify(sampleRequirements))
-      
-      // Save global priority and urgent completion date
-      localStorage.setItem("ntrGlobalPriority", globalPriority)
-      if (urgentCompletionDate) {
-        localStorage.setItem("ntrUrgentCompletionDate", urgentCompletionDate.toISOString())
-      }
-      
-      // Save keywords
-      localStorage.setItem("ntrKeywords", JSON.stringify(keywords))
+      localStorage.setItem("erSamplePriorities", JSON.stringify(samplePriorities))
+      localStorage.setItem("erSampleRequirements", JSON.stringify(sampleRequirements))
     } catch (error) {
       console.error("Error saving test methods to localStorage:", error)
     }
@@ -1166,31 +1124,25 @@ export default function TestMethodCatalogPage() {
     try {
       // First, save with the original key for compatibility
       localStorage.setItem(
-        "ntrFormData",
+        "erFormData",
         JSON.stringify({
           requestTitle: formData.requestTitle,
-          priority: globalPriority, // Use globalPriority instead of formData.priority
+          priority: formData.priority,
           useIONumber: formData.useIONumber,
           ioNumber: formData.ioNumber,
           costCenter: formData.costCenter,
-          urgencyType: formData.urgencyType || "",
-          urgencyReason: formData.urgencyReason || "",
-          approver: formData.approver || ""
         })
       );
 
       // Also save with a persistent key that won't be removed
       localStorage.setItem(
-        "ntrFormData_persistent",
+        "erFormData_persistent",
         JSON.stringify({
           requestTitle: formData.requestTitle,
-          priority: globalPriority, // Use globalPriority instead of formData.priority
+          priority: formData.priority,
           useIONumber: formData.useIONumber,
           ioNumber: formData.ioNumber,
           costCenter: formData.costCenter,
-          urgencyType: formData.urgencyType || "",
-          urgencyReason: formData.urgencyReason || "",
-          approver: formData.approver || ""
         })
       );
     } catch (error) {
@@ -1203,15 +1155,18 @@ export default function TestMethodCatalogPage() {
       description: "Your test method selections are being saved...",
     });
 
-    // Navigate back to the sample information page (step 2) using Next.js router
-    const queryParams = new URLSearchParams();
-    queryParams.set('step', '2');
-    if (isEditMode && editRequestId) {
-      queryParams.set('edit', editRequestId);
-    } else if (isDuplicateMode && duplicateRequestId) {
-      queryParams.set('duplicate', duplicateRequestId);
-    }
-    router.push(`/request/new/ntr?${queryParams.toString()}`);
+    // Add a small delay to ensure data is saved before navigation
+    setTimeout(() => {
+      // Navigate back to the sample information page (step 2)
+      const queryParams = new URLSearchParams();
+      queryParams.set('step', '2');
+      if (isEditMode && editRequestId) {
+        queryParams.set('edit', editRequestId);
+      } else if (isDuplicateMode && duplicateRequestId) {
+        queryParams.set('duplicate', duplicateRequestId);
+      }
+      window.location.href = `/request/new/er?${queryParams.toString()}`;
+    }, 500);
   }
 
   return (
@@ -1344,7 +1299,7 @@ export default function TestMethodCatalogPage() {
                         <div className="flex items-center gap-2 pl-4 border-l-2 border-gray-300 dark:border-gray-600">
                           <div className="flex flex-col gap-1">
                             <Label className="text-xs font-normal text-gray-600 dark:text-gray-400">Expected Completion Date:</Label>
-                            <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                            <Popover>
                               <PopoverTrigger asChild>
                                 <Button
                                   variant="outline"
@@ -1361,16 +1316,22 @@ export default function TestMethodCatalogPage() {
                                   )}
                                 </Button>
                               </PopoverTrigger>
-                              <PopoverContent className="w-auto p-0" align="start">
-                                <CustomDatePicker
+                              <PopoverContent className="w-auto p-0 bg-white shadow-lg" align="start">
+                                <Calendar
+                                  mode="single"
                                   selected={urgentCompletionDate}
-                                  onSelect={(date) => {
-                                    setUrgentCompletionDate(date)
-                                    setIsDatePickerOpen(false)
+                                  onSelect={setUrgentCompletionDate}
+                                  disabled={(date) => date < new Date()}
+                                  initialFocus
+                                  className="bg-white rounded-md"
+                                  classNames={{
+                                    head_cell: "text-muted-foreground rounded-md w-10 font-normal text-[0.8rem] text-center",
+                                    cell: "h-9 w-10 text-center text-sm p-0 relative [&:has([aria-selected].day-range-end)]:rounded-r-md [&:has([aria-selected].day-outside)]:bg-accent/50 [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md focus-within:relative focus-within:z-20",
+                                    day: "h-9 w-10 p-0 font-normal aria-selected:opacity-100 inline-flex items-center justify-center rounded-md text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50",
+                                    table: "w-full border-collapse",
+                                    head_row: "flex justify-between",
+                                    row: "flex w-full mt-2 justify-between"
                                   }}
-                                  disabled={(date) =>
-                                    date < new Date() || date < new Date(new Date().setHours(0, 0, 0, 0))
-                                  }
                                 />
                               </PopoverContent>
                             </Popover>
@@ -1667,10 +1628,10 @@ export default function TestMethodCatalogPage() {
                                               onPriorityChange={(sampleName, priority) => 
                                                 handleSamplePriorityChange(method.id, sampleName, priority, index)
                                               }
+                                              isExpanded={isSidebarCollapsed}
                                               onRequirementChange={(sampleName, requirement) => 
                                                 handleSampleRequirementChange(method.id, sampleName, requirement, index)
                                               }
-                                              isExpanded={isSidebarCollapsed}
                                             />
                                           </div>
                                         )}
@@ -1928,18 +1889,7 @@ export default function TestMethodCatalogPage() {
               <Button
                 onClick={() => {
                   handleSaveAndContinue()
-                  // Also save formData with updated priority
-                  localStorage.setItem(
-                    "ntrFormData",
-                    JSON.stringify({
-                      ...formData,
-                      priority: globalPriority,
-                      urgencyType: formData.urgencyType || "",
-                      urgencyReason: formData.urgencyReason || "",
-                      approver: formData.approver || ""
-                    })
-                  )
-                  router.push("/request/new/ntr/summary")
+                  router.push("/request/new/er/summary")
                 }}
                 disabled={testMethods.filter((m) => m.selected || m.instances.length > 0).length === 0}
               >
@@ -1986,9 +1936,9 @@ export default function TestMethodCatalogPage() {
                     <p className="text-lg font-bold">{samples.length}</p>
                   </div>
 
-                  <div className="bg-blue-50 dark:bg-blue-950/20 p-3 rounded-lg border border-blue-100 dark:border-blue-900">
-                    <p className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 bg-blue-500 rounded-full"></span>
+                  <div className="border rounded-lg p-3 bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800">
+                    <p className="text-sm font-medium mb-2 text-blue-900 dark:text-blue-100 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-blue-500 rounded-full"></span>
                       Selected Methods ({selectedMethodsCount})
                     </p>
                     <div className="flex flex-wrap gap-1">
@@ -2000,7 +1950,7 @@ export default function TestMethodCatalogPage() {
                             <Badge 
                               key={method.id} 
                               variant="secondary" 
-                              className="text-xs whitespace-nowrap bg-white dark:bg-blue-900/50 text-blue-700 dark:text-blue-200 border-blue-200 dark:border-blue-800 shadow-sm"
+                              className="text-xs whitespace-nowrap bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 border-blue-300 dark:border-blue-700 shadow-sm"
                             >
                               {method.methodcode || 'N/A'}
                               {repeatCount > 1 && ` (×${repeatCount})`}
@@ -2073,9 +2023,9 @@ export default function TestMethodCatalogPage() {
                     </p>
                   </div>
 
-                  <div className="bg-purple-50 dark:bg-purple-950/20 p-3 rounded-lg border border-purple-100 dark:border-purple-900">
-                    <p className="text-sm font-semibold text-purple-900 dark:text-purple-100 mb-2 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 bg-purple-500 rounded-full"></span>
+                  <div className="border rounded-lg p-3 bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800">
+                    <p className="text-sm font-medium mb-2 text-purple-900 dark:text-purple-100 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-purple-500 rounded-full"></span>
                       Keywords
                     </p>
                     <div className="space-y-2">
@@ -2086,8 +2036,8 @@ export default function TestMethodCatalogPage() {
                             variant="secondary" 
                             className={`text-xs transition-all cursor-move shadow-sm ${
                               keyword.active 
-                                ? 'bg-white dark:bg-purple-900/50 text-purple-700 dark:text-purple-200 border-purple-200 dark:border-purple-800 hover:border-purple-300' 
-                                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 line-through border-gray-200 dark:border-gray-700'
+                                ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200 border-purple-300 dark:border-purple-700 hover:bg-purple-200 dark:hover:bg-purple-900/70' 
+                                : 'bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 line-through border-gray-300 dark:border-gray-700'
                             }`}
                             draggable
                             onDragStart={(e) => {
@@ -2158,14 +2108,14 @@ export default function TestMethodCatalogPage() {
                               setNewKeyword('')
                               setShowKeywordInput(false)
                             }}
-                            className="h-6 w-24 text-xs border-purple-200 focus:border-purple-400"
+                            className="h-6 w-24 text-xs"
                             placeholder="Add keyword"
                             autoFocus
                           />
                         ) : (
                           <Badge 
                             variant="outline" 
-                            className="text-xs cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50 border-purple-300 dark:border-purple-700 text-purple-600 dark:text-purple-400"
+                            className="text-xs cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/50 bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 border-purple-300 dark:border-purple-700"
                             onClick={() => setShowKeywordInput(true)}
                           >
                             <Plus className="h-3 w-3" />
@@ -2178,9 +2128,9 @@ export default function TestMethodCatalogPage() {
                     </div>
                   </div>
 
-                  <div className="bg-green-50 dark:bg-green-950/20 p-3 rounded-lg border border-green-100 dark:border-green-900 mt-4">
-                    <p className="text-sm font-semibold text-green-900 dark:text-green-100 mb-2 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span>
+                  <div className="border rounded-lg p-3 bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800 mt-4">
+                    <p className="text-sm font-medium mb-2 text-green-900 dark:text-green-100 flex items-center gap-2">
+                      <span className="w-2 h-2 bg-green-500 rounded-full"></span>
                       Request Breakdown
                     </p>
                     {(() => {
@@ -2306,7 +2256,7 @@ export default function TestMethodCatalogPage() {
                 <p className="text-blue-700 text-sm mb-4">
                   Our Smart Assistant can recommend the most appropriate test methods based on your requirements.
                 </p>
-                <Link href="/request/new/ntr/smart-assistant" className="w-full">
+                <Link href="/request/new/er/smart-assistant" className="w-full">
                   <Button className="w-full bg-blue-600 hover:bg-blue-700">Launch Smart Assistant</Button>
                 </Link>
               </CardContent>

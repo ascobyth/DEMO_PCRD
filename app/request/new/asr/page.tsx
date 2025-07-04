@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronLeft, ChevronRight, HelpCircle, Plus, Upload, Paperclip, Calendar, Copy, Pencil, Trash2, Save } from "lucide-react"
+import { ChevronLeft, ChevronRight, HelpCircle, Plus, Upload, Paperclip, Calendar, Copy, Pencil, Trash2, Save, X } from "lucide-react"
 import Link from "next/link"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
@@ -38,27 +38,12 @@ import {
 } from "@/components/ui/table"
 import { SearchableSelect } from "@/components/ui/searchable-select"
 import { RequestInformationForm } from "@/components/request-information-form"
+import { ASRInformationForm } from "@/components/asr-information-form"
+import { EnhancedSampleDialog } from "@/components/samples/EnhancedSampleDialog"
+import { Sample, SampleCategory } from "@/components/samples/types"
 
 // Import API client for fetching capabilities
 import { fetchCapabilities } from "@/lib/api-client"
-
-
-// Define proper types for Sample
-interface Sample {
-  id?: string; // Unique identifier for React keys
-  category: string;
-  grade?: string;
-  lot?: string;
-  sampleIdentity: string;
-  type: string;
-  form: string;
-  tech?: string;
-  feature?: string;
-  plant?: string;
-  samplingDate?: string;
-  samplingTime?: string;
-  generatedName: string;
-}
 
 export default function ASRPage() {
   const router = useRouter()
@@ -70,6 +55,12 @@ export default function ASRPage() {
     useIONumber: "yes",
     ioNumber: "",
     costCenter: "",
+    // ASR Information fields
+    projectCategory: "",
+    projectCategoryOther: "",
+    sampleSources: [] as string[],
+    sampleSourceOther: "",
+    // Previous fields
     problemSource: "",
     testObjective: "",
     expectedResults: "",
@@ -77,6 +68,8 @@ export default function ASRPage() {
     desiredCompletionDate: "",
     samples: [] as Sample[],
     selectedCapabilities: [] as string[],
+    pcrdResponsiblePerson: "",
+    pcrdPersonSpecified: false,
     additionalRequirements: "",
     attachments: [] as { name: string; size: number; type: string; lastModified: number }[],
     // On behalf fields
@@ -93,7 +86,7 @@ export default function ASRPage() {
   })
 
   // Sample category state - reusing from NTR
-  const [sampleCategory, setSampleCategory] = useState("")
+  const [sampleCategory, setSampleCategory] = useState<SampleCategory | "">("")
   const [currentSample, setCurrentSample] = useState<Sample>({
     category: "",
     grade: "",
@@ -106,7 +99,14 @@ export default function ASRPage() {
     plant: "",
     samplingDate: "",
     samplingTime: "",
+    samplingDateTime: "",
+    chemicalName: "",
+    supplier: "",
+    capType: "",
     generatedName: "",
+    tdSelectionMode: "both",
+    techForFutureUse: false,
+    featureForFutureUse: false,
   })
 
   // Add these new state variables after the existing state declarations
@@ -115,6 +115,7 @@ export default function ASRPage() {
   const automaticNamingRef = useRef<HTMLDivElement>(null)
   const sampleSummaryRef = useRef<HTMLDivElement>(null)
   const addMoreButtonRef = useRef<HTMLButtonElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [focusedSection, setFocusedSection] = useState<"naming" | "summary" | "addMore" | null>(null)
   const [showSampleSections, setShowSampleSections] = useState(false)
   const [highlightedField, setHighlightedField] = useState<string | null>("sample-category")
@@ -271,7 +272,10 @@ export default function ASRPage() {
           setFormData((prev) => ({ ...prev, costCenter: currentUser.costCenter }))
         } else {
           console.log("No cost center found for user:", user.email)
-          setCostCenterError("No cost center found for this user")
+          // Set a default cost center if none found
+          const defaultCostCenter = user.costCenter || user.department || "0090-01560"
+          setFormData((prev) => ({ ...prev, costCenter: defaultCostCenter }))
+          setCostCenterError("Using default cost center")
         }
       } catch (error: any) {
         console.error("Failed to load cost center:", error)
@@ -289,8 +293,14 @@ export default function ASRPage() {
     if (formData.isOnBehalf && formData.onBehalfOfCostCenter) {
       setFormData(prev => ({ ...prev, costCenter: formData.onBehalfOfCostCenter }))
     } else if (!formData.isOnBehalf && user) {
-      const costCenter = user.costCenter || user.department || '0090-01560'
-      setFormData(prev => ({ ...prev, costCenter }))
+      // Don't override if we already have a cost center from the API
+      setFormData(prev => {
+        if (!prev.costCenter) {
+          const costCenter = user.costCenter || user.department || '0090-01560'
+          return { ...prev, costCenter }
+        }
+        return prev
+      })
     }
   }, [formData.isOnBehalf, formData.onBehalfOfCostCenter, user])
 
@@ -686,12 +696,14 @@ export default function ASRPage() {
 
   // State for capabilities fetched from the database
   const [capabilities, setCapabilities] = useState<any[]>([])
-  const [isLoadingCapabilities, setIsLoadingCapabilities] = useState(true)
+  const [loadingCapabilities, setLoadingCapabilities] = useState(true)
+  const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null)
 
   // Fetch capabilities from the API when the component mounts
   useEffect(() => {
     const getCapabilities = async () => {
-      setIsLoadingCapabilities(true)
+      setLoadingCapabilities(true)
+      setCapabilitiesError(null)
       try {
         const capabilitiesData = await fetchCapabilities()
         console.log("Fetched capabilities:", capabilitiesData)
@@ -715,15 +727,16 @@ export default function ASRPage() {
             console.error("Error seeding capabilities:", seedError)
           }
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching capabilities:", error)
+        setCapabilitiesError(error.message || "Unable to load capabilities")
         toast({
           title: "Error loading capabilities",
           description: "Unable to load capabilities from database. Please refresh the page.",
           variant: "destructive"
         })
       } finally {
-        setIsLoadingCapabilities(false)
+        setLoadingCapabilities(false)
       }
     }
 
@@ -765,51 +778,13 @@ export default function ASRPage() {
     }
   }
 
-  const handleSampleChange = (name: string, value: string) => {
-    setCurrentSample((prev) => {
-      const updated = { ...prev, [name]: value }
+  const handleSampleChange = (name: string, value: string | boolean) => {
+    setCurrentSample((prev) => ({ ...prev, [name]: value }))
+  }
 
-      // Generate sample name based on category and fields
-      let generatedName = ""
-
-      if (updated.category === "commercial" && updated.grade && updated.lot && updated.sampleIdentity) {
-        generatedName = `${updated.grade}_${updated.lot}_${updated.sampleIdentity}`
-      } else if (updated.category === "td" && updated.tech && updated.feature && updated.sampleIdentity) {
-        // Get abbreviations from the dynamic data
-        const featureAbbr = featureAppOptions.find((f) => f.value === updated.feature)?.value || updated.feature
-        const techAbbr = techCatOptions.find((t) => t.value === updated.tech)?.value || updated.tech
-        generatedName = `${featureAbbr}_${techAbbr}_${updated.sampleIdentity}`
-      } else if (updated.category === "benchmark" && updated.feature && updated.sampleIdentity) {
-        const featureAbbr = featureAppOptions.find((f) => f.value === updated.feature)?.value || updated.feature
-        generatedName = `${featureAbbr}_${updated.sampleIdentity}`
-      } else if (
-        updated.category === "inprocess" &&
-        updated.plant &&
-        updated.samplingDate &&
-        updated.samplingTime &&
-        updated.sampleIdentity
-      ) {
-        generatedName = `${updated.plant}_${updated.samplingDate}_${updated.samplingTime}_${updated.sampleIdentity}`
-      } else if (
-        updated.category === "chemicals" &&
-        updated.plant &&
-        updated.samplingDate &&
-        updated.samplingTime &&
-        updated.sampleIdentity
-      ) {
-        generatedName = `${updated.plant}_${updated.samplingDate}_${updated.samplingTime}_${updated.sampleIdentity}`
-      } else if (updated.category === "cap" && updated.feature && updated.sampleIdentity) {
-        const featureAbbr = featureAppOptions.find((f) => f.value === updated.feature)?.value || updated.feature
-        generatedName = `CAP_${featureAbbr}_${updated.sampleIdentity}`
-      }
-
-      // After changing a field, check for the next empty required field
-      setTimeout(() => {
-        highlightNextEmptyField()
-      }, 100)
-
-      return { ...updated, generatedName }
-    })
+  const handleSampleCategoryChange = (category: SampleCategory) => {
+    setSampleCategory(category)
+    setCurrentSample(prev => ({ ...prev, category }))
   }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -862,6 +837,13 @@ export default function ASRPage() {
         selectedCapabilities: [capabilityId],
       }
     })
+  }
+
+  const handleCapabilityChange = (value: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      selectedCapabilities: [value],
+    }))
   }
 
   // Check for duplicate sample names
@@ -956,7 +938,14 @@ export default function ASRPage() {
       plant: "",
       samplingDate: "",
       samplingTime: "",
+      samplingDateTime: "",
+      chemicalName: "",
+      supplier: "",
+      capType: "",
       generatedName: "",
+      tdSelectionMode: "both",
+      techForFutureUse: false,
+      featureForFutureUse: false,
     })
     setSampleCategory("")
     setShowSampleSections(true)
@@ -1007,6 +996,34 @@ export default function ASRPage() {
   // Update the handleEditSample function
   const handleEditSample = (sample: any, index: number) => {
     openEditSampleDialog(sample, index)
+  }
+
+  // Alias for handleRemoveSample to match the function name used in the UI
+  const handleDeleteSample = (index: number) => {
+    handleRemoveSample(index)
+  }
+
+  // Handle file selection for attachments
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || [])
+    if (files.length > 0) {
+      const newAttachments = files.map(file => ({
+        name: file.name,
+        size: file.size,
+        type: file.type,
+        lastModified: file.lastModified
+      }))
+      
+      setFormData(prev => ({
+        ...prev,
+        attachments: [...prev.attachments, ...newAttachments]
+      }))
+
+      toast({
+        title: "Files uploaded",
+        description: `${files.length} file(s) added to attachments.`,
+      })
+    }
   }
 
   // Add a function to convert samples to CSV format
@@ -1206,6 +1223,21 @@ export default function ASRPage() {
     return false;
   });
 
+  // Load a sample set into the form
+  const loadSampleSet = (sampleSet: any) => {
+    if (sampleSet.samples && Array.isArray(sampleSet.samples)) {
+      setFormData(prev => ({
+        ...prev,
+        samples: sampleSet.samples
+      }));
+      
+      toast({
+        title: "Sample set loaded",
+        description: `Loaded ${sampleSet.samples.length} samples from "${sampleSet.sampleSetName}"`,
+      });
+    }
+  };
+
   // Delete sample set
   const handleDeleteSampleSet = async (sampleSetId: string, sampleSetName: string, event: React.MouseEvent) => {
     event.stopPropagation(); // Prevent loading the sample set when clicking delete
@@ -1261,12 +1293,48 @@ export default function ASRPage() {
   };
 
   const nextStep = () => {
+    console.log("Next button clicked, currentStep:", currentStep)
+    console.log("Form data:", formData)
+    
     if (currentStep === 1) {
-      // Validate Request Information
-      if (!formData.requestTitle) {
+      // Validate ASR Information
+      if (!formData.projectCategory) {
         toast({
           title: "Required Field Missing",
-          description: "Please enter a request title to continue.",
+          description: "Please select a project category to continue.",
+        })
+        return
+      }
+
+      if (formData.projectCategory === "Other" && !formData.projectCategoryOther) {
+        toast({
+          title: "Required Field Missing",
+          description: "Please specify the project category to continue.",
+        })
+        return
+      }
+
+      if (formData.sampleSources.length === 0) {
+        toast({
+          title: "Required Field Missing",
+          description: "Please select at least one sample source to continue.",
+        })
+        return
+      }
+
+      if (formData.sampleSources.includes("Other") && !formData.sampleSourceOther) {
+        toast({
+          title: "Required Field Missing",
+          description: "Please specify the other sample sources to continue.",
+        })
+        return
+      }
+
+      // Check if useIONumber is set
+      if (!formData.useIONumber) {
+        toast({
+          title: "Required Field Missing",
+          description: "Please select whether to use IO Number or not.",
         })
         return
       }
@@ -1279,6 +1347,14 @@ export default function ASRPage() {
         return
       }
 
+      if (formData.useIONumber === "no" && !formData.costCenter) {
+        toast({
+          title: "Required Field Missing",
+          description: "Cost center is required when not using IO Number.",
+        })
+        return
+      }
+
       // Save form data to localStorage when moving from step 1
       try {
         const formDataToSave = {
@@ -1287,6 +1363,10 @@ export default function ASRPage() {
           useIONumber: formData.useIONumber,
           ioNumber: formData.ioNumber,
           costCenter: formData.costCenter,
+          projectCategory: formData.projectCategory,
+          projectCategoryOther: formData.projectCategoryOther,
+          sampleSources: formData.sampleSources,
+          sampleSourceOther: formData.sampleSourceOther,
           problemSource: formData.problemSource,
           testObjective: formData.testObjective,
           expectedResults: formData.expectedResults,
@@ -1309,11 +1389,11 @@ export default function ASRPage() {
         console.error("Error saving form data to localStorage:", error)
       }
     } else if (currentStep === 2) {
-      // Validate Problem Description
-      if (!formData.problemSource) {
+      // Validate General Request Information
+      if (!formData.requestTitle) {
         toast({
           title: "Required Field Missing",
-          description: "Please select a problem source to continue.",
+          description: "Please enter a request title to continue.",
         })
         return
       }
@@ -1321,7 +1401,7 @@ export default function ASRPage() {
       if (!formData.testObjective) {
         toast({
           title: "Required Field Missing",
-          description: "Please enter test objectives to continue.",
+          description: "Please enter background/problem details to continue.",
         })
         return
       }
@@ -1366,17 +1446,24 @@ export default function ASRPage() {
     if (currentStep === 3) {
       try {
         localStorage.setItem("asrSamples", JSON.stringify(formData.samples))
+        localStorage.setItem("asrFormData", JSON.stringify({
+          ...formData,
+          urgentMemo: null // Can't store files in localStorage
+        }))
+        // Redirect to test methods page after samples
+        router.push("/request/new/asr/test-methods")
+        return
       } catch (error) {
         console.error("Error saving samples to localStorage:", error)
       }
     }
 
     setCurrentStep((prev) => prev + 1)
-  }
+  };
 
   const prevStep = () => {
     setCurrentStep((prev) => prev - 1)
-  }
+  };
 
   const handleReviewAndSubmit = () => {
     try {
@@ -1386,586 +1473,12 @@ export default function ASRPage() {
       console.error("Error saving form data:", error)
     }
     router.push("/request/new/asr/summary")
-  }
+  };
 
   // Function to start adding samples
   const startAddingSamples = () => {
     openAddSampleDialog()
-  }
-
-  // Function to render sample form fields based on category
-  const renderSampleFields = () => {
-    switch (sampleCategory) {
-      case "commercial":
-        return (
-          <div className="space-y-5">
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="grade">Grade</Label>
-                {loadingGrades ? (
-                  <div className="flex items-center space-x-2 p-2 border rounded-md">
-                    <div className="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
-                    <span className="text-sm text-muted-foreground">Loading grades...</span>
-                  </div>
-                ) : (
-                  <SearchableSelect
-                    id="grade"
-                    options={commercialGrades}
-                    value={currentSample.grade || ""}
-                    onChange={(value) => handleSampleChange("grade", value)}
-                    placeholder="Search grade..."
-                    className={highlightedField === "grade" ? "ring-2 ring-blue-500 border-blue-500" : ""}
-                  />
-                )}
-                {gradesError && (
-                  <p className="text-xs text-red-500 mt-1">Error loading grades: {gradesError}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="lot">Lot</Label>
-                <Input
-                  id="lot"
-                  value={currentSample.lot}
-                  onChange={(e) => handleSampleChange("lot", e.target.value)}
-                  placeholder="Enter lot number"
-                  className={`w-full ${highlightedField === "lot" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="sample-identity">Sample Identity</Label>
-                <Input
-                  id="sample-identity"
-                  value={currentSample.sampleIdentity}
-                  onChange={(e) => handleSampleChange("sampleIdentity", e.target.value)}
-                  placeholder="Enter sample identifier"
-                  className={`w-full ${highlightedField === "sampleIdentity" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <Select value={currentSample.type} onValueChange={(value) => handleSampleChange("type", value)}>
-                  <SelectTrigger
-                    id="type"
-                    className={`w-full ${highlightedField === "type" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {typeOptions.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="form">Form</Label>
-                <Select value={currentSample.form} onValueChange={(value) => handleSampleChange("form", value)}>
-                  <SelectTrigger
-                    id="form"
-                    className={`w-full ${highlightedField === "form" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select form" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formOptions.map((form) => (
-                      <SelectItem key={form.value} value={form.value}>
-                        {form.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )
-
-      case "td":
-        return (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="tech">Tech/CAT</Label>
-                {loadingAppTechs ? (
-                  <div className="flex items-center space-x-2 p-2 border rounded-md">
-                    <div className="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
-                    <span className="text-sm text-muted-foreground">Loading Tech/CAT options...</span>
-                  </div>
-                ) : (
-                  <AutocompleteInput
-                    id="tech"
-                    options={techCatOptions.length > 0 ? techCatOptions : [{ value: "", label: "No Tech/CAT options available", shortText: "" }]}
-                    value={currentSample.tech || ""}
-                    onChange={(value) => handleSampleChange("tech", value)}
-                    placeholder="Search Tech/CAT"
-                    allowCustomValue={true}
-                    className={`${highlightedField === "tech" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  />
-                )}
-                {appTechError && (
-                  <p className="text-xs text-red-500 mt-1">Error loading Tech/CAT options: {appTechError}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="feature">Feature/App</Label>
-                {loadingAppTechs ? (
-                  <div className="flex items-center space-x-2 p-2 border rounded-md">
-                    <div className="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
-                    <span className="text-sm text-muted-foreground">Loading Feature/App options...</span>
-                  </div>
-                ) : (
-                  <AutocompleteInput
-                    id="feature"
-                    options={featureAppOptions.length > 0 ? featureAppOptions : [{ value: "", label: "No Feature/App options available", shortText: "" }]}
-                    value={currentSample.feature || ""}
-                    onChange={(value) => handleSampleChange("feature", value)}
-                    placeholder="Search Feature/App"
-                    allowCustomValue={true}
-                    className={`${highlightedField === "feature" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  />
-                )}
-                {appTechError && (
-                  <p className="text-xs text-red-500 mt-1">Error loading Feature/App options: {appTechError}</p>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="sample-identity">Sample Identity</Label>
-                <Input
-                  id="sample-identity"
-                  value={currentSample.sampleIdentity}
-                  onChange={(e) => handleSampleChange("sampleIdentity", e.target.value)}
-                  placeholder="Enter sample identifier"
-                  className={`${highlightedField === "sampleIdentity" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <Select value={currentSample.type} onValueChange={(value) => handleSampleChange("type", value)}>
-                  <SelectTrigger
-                    id="type"
-                    className={`w-full ${highlightedField === "type" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {typeOptions.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="form">Form</Label>
-                <Select value={currentSample.form} onValueChange={(value) => handleSampleChange("form", value)}>
-                  <SelectTrigger
-                    id="form"
-                    className={`w-full ${highlightedField === "form" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select form" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formOptions.map((form) => (
-                      <SelectItem key={form.value} value={form.value}>
-                        {form.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )
-
-      case "benchmark":
-        return (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="feature">Feature/App</Label>
-                {loadingAppTechs ? (
-                  <div className="flex items-center space-x-2 p-2 border rounded-md">
-                    <div className="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
-                    <span className="text-sm text-muted-foreground">Loading Feature/App options...</span>
-                  </div>
-                ) : (
-                  <AutocompleteInput
-                    id="feature"
-                    options={featureAppOptions.length > 0 ? featureAppOptions : [{ value: "", label: "No Feature/App options available", shortText: "" }]}
-                    value={currentSample.feature || ""}
-                    onChange={(value) => handleSampleChange("feature", value)}
-                    placeholder="Search Feature/App"
-                    allowCustomValue={true}
-                    className={`${highlightedField === "feature" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  />
-                )}
-                {appTechError && (
-                  <p className="text-xs text-red-500 mt-1">Error loading Feature/App options: {appTechError}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sample-identity">Sample Identity</Label>
-                <Input
-                  id="sample-identity"
-                  value={currentSample.sampleIdentity}
-                  onChange={(e) => handleSampleChange("sampleIdentity", e.target.value)}
-                  placeholder="Enter sample identifier"
-                  className={`${highlightedField === "sampleIdentity" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <Select value={currentSample.type} onValueChange={(value) => handleSampleChange("type", value)}>
-                  <SelectTrigger
-                    id="type"
-                    className={`w-full ${highlightedField === "type" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {typeOptions.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="form">Form</Label>
-                <Select value={currentSample.form} onValueChange={(value) => handleSampleChange("form", value)}>
-                  <SelectTrigger
-                    id="form"
-                    className={`w-full ${highlightedField === "form" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select form" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formOptions.map((form) => (
-                      <SelectItem key={form.value} value={form.value}>
-                        {form.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )
-
-      case "inprocess":
-        return (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="plant">Plant</Label>
-                <Select value={currentSample.plant} onValueChange={(value) => handleSampleChange("plant", value)}>
-                  <SelectTrigger
-                    id="plant"
-                    className={`w-full ${highlightedField === "plant" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select plant" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {plantOptions.map((plant) => (
-                      <SelectItem key={plant.value} value={plant.value}>
-                        {plant.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sampling-date">Sampling Date</Label>
-                <Input
-                  id="sampling-date"
-                  type="date"
-                  value={currentSample.samplingDate}
-                  onChange={(e) => handleSampleChange("samplingDate", e.target.value)}
-                  className={`${highlightedField === "samplingDate" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sampling-time">Sampling Time</Label>
-                <Input
-                  id="sampling-time"
-                  type="time"
-                  value={currentSample.samplingTime}
-                  onChange={(e) => handleSampleChange("samplingTime", e.target.value)}
-                  className={`${highlightedField === "samplingTime" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="sample-identity">Sample Identity</Label>
-                <Input
-                  id="sample-identity"
-                  value={currentSample.sampleIdentity}
-                  onChange={(e) => handleSampleChange("sampleIdentity", e.target.value)}
-                  placeholder="Enter sample identifier"
-                  className={`${highlightedField === "sampleIdentity" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <Select value={currentSample.type} onValueChange={(value) => handleSampleChange("type", value)}>
-                  <SelectTrigger
-                    id="type"
-                    className={`w-full ${highlightedField === "type" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {typeOptions.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="form">Form</Label>
-                <Select value={currentSample.form} onValueChange={(value) => handleSampleChange("form", value)}>
-                  <SelectTrigger
-                    id="form"
-                    className={`w-full ${highlightedField === "form" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select form" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formOptions.map((form) => (
-                      <SelectItem key={form.value} value={form.value}>
-                        {form.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )
-
-      case "chemicals":
-        return (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="plant">Plant</Label>
-                <Select value={currentSample.plant} onValueChange={(value) => handleSampleChange("plant", value)}>
-                  <SelectTrigger
-                    id="plant"
-                    className={`w-full ${highlightedField === "plant" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select plant" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {plantOptions.map((plant) => (
-                      <SelectItem key={plant.value} value={plant.value}>
-                        {plant.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sampling-date">Sampling Date</Label>
-                <Input
-                  id="sampling-date"
-                  type="date"
-                  value={currentSample.samplingDate}
-                  onChange={(e) => handleSampleChange("samplingDate", e.target.value)}
-                  className={`${highlightedField === "samplingDate" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sampling-time">Sampling Time</Label>
-                <Input
-                  id="sampling-time"
-                  type="time"
-                  value={currentSample.samplingTime}
-                  onChange={(e) => handleSampleChange("samplingTime", e.target.value)}
-                  className={`${highlightedField === "samplingTime" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="space-y-2">
-                <Label htmlFor="sample-identity">Sample Identity</Label>
-                <Input
-                  id="sample-identity"
-                  value={currentSample.sampleIdentity}
-                  onChange={(e) => handleSampleChange("sampleIdentity", e.target.value)}
-                  placeholder="Enter sample identifier"
-                  className={`${highlightedField === "sampleIdentity" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <Select value={currentSample.type} onValueChange={(value) => handleSampleChange("type", value)}>
-                  <SelectTrigger
-                    id="type"
-                    className={`w-full ${highlightedField === "type" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {typeOptions.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="form">Form</Label>
-                <Select value={currentSample.form} onValueChange={(value) => handleSampleChange("form", value)}>
-                  <SelectTrigger
-                    id="form"
-                    className={`w-full ${highlightedField === "form" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select form" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formOptions.map((form) => (
-                      <SelectItem key={form.value} value={form.value}>
-                        {form.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )
-
-      case "cap":
-        return (
-          <div className="space-y-4">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="feature">Feature/App</Label>
-                {loadingAppTechs ? (
-                  <div className="flex items-center space-x-2 p-2 border rounded-md">
-                    <div className="animate-spin h-4 w-4 border-2 border-blue-500 rounded-full border-t-transparent"></div>
-                    <span className="text-sm text-muted-foreground">Loading Feature/App options...</span>
-                  </div>
-                ) : (
-                  <AutocompleteInput
-                    id="feature"
-                    options={featureAppOptions.length > 0 ? featureAppOptions : [{ value: "", label: "No Feature/App options available", shortText: "" }]}
-                    value={currentSample.feature || ""}
-                    onChange={(value) => handleSampleChange("feature", value)}
-                    placeholder="Search Feature/App"
-                    allowCustomValue={true}
-                    className={`${highlightedField === "feature" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  />
-                )}
-                {appTechError && (
-                  <p className="text-xs text-red-500 mt-1">Error loading Feature/App options: {appTechError}</p>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sample-identity">Sample Identity</Label>
-                <Input
-                  id="sample-identity"
-                  value={currentSample.sampleIdentity}
-                  onChange={(e) => handleSampleChange("sampleIdentity", e.target.value)}
-                  placeholder="Enter sample identifier"
-                  className={`${highlightedField === "sampleIdentity" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  autoComplete="off"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="type">Type</Label>
-                <Select value={currentSample.type} onValueChange={(value) => handleSampleChange("type", value)}>
-                  <SelectTrigger
-                    id="type"
-                    className={`w-full ${highlightedField === "type" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {typeOptions.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="form">Form</Label>
-                <Select value={currentSample.form} onValueChange={(value) => handleSampleChange("form", value)}>
-                  <SelectTrigger
-                    id="form"
-                    className={`w-full ${highlightedField === "form" ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                  >
-                    <SelectValue placeholder="Select form" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {formOptions.map((form) => (
-                      <SelectItem key={form.value} value={form.value}>
-                        {form.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </div>
-        )
-
-      default:
-        return null
-    }
-  }
+  };
 
   return (
     <DashboardLayout>
@@ -2036,196 +1549,217 @@ export default function ASRPage() {
         <div className="grid gap-6 md:grid-cols-3">
           <div className="md:col-span-2">
             {currentStep === 1 && (
-              <RequestInformationForm
-                requestType="ASR"
-                currentStep={currentStep}
-                formData={formData}
-                isEditMode={false}
-                editRequestId=""
-                urgencyTypes={urgencyTypes}
-                ioOptions={ioOptions}
-                onBehalfUsers={onBehalfUsers}
-                approvers={approvers}
-                loadingStates={{
-                  loadingIoOptions,
-                  loadingCostCenter,
-                  loadingOnBehalfUsers,
-                  loadingApprovers,
-                }}
-                errors={{
-                  ioError,
-                  costCenterError,
-                  onBehalfUsersError,
-                  approversError,
-                }}
-                onFormChange={(name, value) => {
-                  if (typeof value === 'string') {
-                    handleChange({ target: { name, value } } as React.ChangeEvent<HTMLInputElement>)
-                  }
-                }}
-                onSelectChange={handleSelectChange}
-                onOnBehalfToggle={handleOnBehalfToggle}
-                onOnBehalfUserChange={handleOnBehalfUserChange}
-                onFileChange={handleFileChange}
-              />
+              <>
+                <ASRInformationForm
+                  formData={formData}
+                  onChange={(updatedData) => {
+                    setFormData(updatedData)
+                  }}
+                  ioOptions={ioOptions}
+                  loadingIoOptions={loadingIoOptions}
+                  ioError={ioError}
+                  loadingCostCenter={loadingCostCenter}
+                  costCenterError={costCenterError}
+                />
+                <div className="flex justify-between mt-6">
+                  <div>
+                    {currentStep > 1 && (
+                      <Button
+                        variant="outline"
+                        onClick={prevStep}
+                      >
+                        <ChevronLeft className="mr-2 h-4 w-4" />
+                        Previous
+                      </Button>
+                    )}
+                  </div>
+                  <div>
+                    {currentStep < 6 && (
+                      <Button
+                        onClick={nextStep}
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                      >
+                        Next
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                    {currentStep === 6 && (
+                      <Button
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                        onClick={handleReviewAndSubmit}
+                      >
+                        Review and Submit
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
 
             {currentStep === 2 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Problem Description</CardTitle>
-                  <CardDescription>Describe the problem or challenge you need help with</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="problem-source">Problem Source</Label>
-                    <Select
-                      value={formData.problemSource}
-                      onValueChange={(value) => handleSelectChange("problemSource", value)}
-                    >
-                      <SelectTrigger
-                        id="problem-source"
-                        className={`w-full ${!formData.problemSource ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                      >
-                        <SelectValue placeholder="Select problem source" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {problemSources.map((source) => (
-                          <SelectItem key={source.value} value={source.value}>
-                            {source.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {!formData.problemSource && (
-                      <p className="text-sm text-red-500">Please select a problem source to continue</p>
-                    )}
-                  </div>
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>General Request Information</CardTitle>
+                    <CardDescription>Provide general information about your request</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="request-title">Title *</Label>
+                      <Input
+                        id="request-title"
+                        name="requestTitle"
+                        value={formData.requestTitle}
+                        onChange={handleChange}
+                        placeholder="Enter a descriptive title for your request"
+                        className={`${!formData.requestTitle ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
+                      />
+                      {!formData.requestTitle && (
+                        <p className="text-sm text-red-500">Please enter a request title to continue</p>
+                      )}
+                    </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="test-objective">Test Objectives</Label>
-                    <Textarea
-                      id="test-objective"
-                      name="testObjective"
-                      value={formData.testObjective}
-                      onChange={handleChange}
-                      placeholder="Describe what you want to achieve with this analysis"
-                      className={`min-h-[120px] ${!formData.testObjective ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                    />
-                    {!formData.testObjective && (
-                      <p className="text-sm text-red-500">Please enter test objectives to continue</p>
+                    <div className="space-y-2">
+                      <Label htmlFor="background-details">Backgrounds/Problem Details *</Label>
+                      <Textarea
+                        id="background-details"
+                        name="testObjective"
+                        value={formData.testObjective}
+                        onChange={handleChange}
+                        placeholder="Provide detailed background information and describe the specific problem you need help with"
+                        className={`min-h-[120px] ${!formData.testObjective ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
+                      />
+                      {!formData.testObjective && (
+                        <p className="text-sm text-red-500">Please enter background/problem details to continue</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="specific-questions">Specific Questions or Requirements for PCRD Related Person</Label>
+                      <Textarea
+                        id="specific-questions"
+                        name="additionalRequirements"
+                        value={formData.additionalRequirements}
+                        onChange={handleChange}
+                        placeholder="What specific questions do you have for the PCRD team? What are your specific requirements or expectations?"
+                        className="min-h-[100px]"
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+                <div className="flex justify-between mt-6">
+                  <div>
+                    {currentStep > 1 && (
+                      <Button
+                        variant="outline"
+                        onClick={prevStep}
+                      >
+                        <ChevronLeft className="mr-2 h-4 w-4" />
+                        Previous
+                      </Button>
                     )}
                   </div>
-                </CardContent>
-              </Card>
+                  <div>
+                    {currentStep < 6 && (
+                      <Button
+                        onClick={nextStep}
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                      >
+                        Next
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                    {currentStep === 6 && (
+                      <Button
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                        onClick={handleReviewAndSubmit}
+                      >
+                        Review and Submit
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
 
-              {currentStep === 3 && (
-              <Card className="w-full">
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <CardTitle>Sample Information</CardTitle>
-                      <CardDescription>Add one or more samples for analysis</CardDescription>
-                    </div>
-                    <Button variant="outline" size="sm" onClick={() => setShowLoadDialog(true)}>
-                      <Upload className="mr-1 h-3 w-3" />
-                      Load Sample List
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {formData.samples.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12">
-                      <div className="text-center space-y-4">
-                        <h3 className="text-lg font-medium">No samples added yet</h3>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          Click the button below to start adding samples to your request. You'll be guided through the
-                          process step by step.
-                        </p>
-                        <Button
-                          onClick={openAddSampleDialog}
-                          className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                        >
-                          <Plus className="mr-2 h-4 w-4" />
-                          Add New Sample
-                        </Button>
+            {currentStep === 3 && (
+              <>
+                <Card className="w-full">
+                  <CardHeader>
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <CardTitle>Sample Information</CardTitle>
+                        <CardDescription>Add one or more samples for analysis</CardDescription>
                       </div>
+                      <Button variant="outline" size="sm" onClick={() => setShowLoadDialog(true)}>
+                        <Upload className="mr-1 h-3 w-3" />
+                        Load Sample List
+                      </Button>
                     </div>
-                  ) : (
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center">
-                        <div className="space-y-1">
-                          <h3 className="text-lg font-medium">Samples</h3>
-                          <p className="text-sm text-muted-foreground">
-                            {formData.samples.length} sample(s) added
+                  </CardHeader>
+                  <CardContent>
+                    {formData.samples.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12">
+                        <div className="text-center space-y-4">
+                          <h3 className="text-lg font-medium">No samples added yet</h3>
+                          <p className="text-sm text-muted-foreground max-w-md">
+                            Click the button below to start adding samples to your request. You'll be guided through the
+                            process step by step.
                           </p>
-                        </div>
-                        <div className="flex space-x-2">
-                          <Button variant="outline" size="sm" onClick={() => setShowSaveDialog(true)}>
-                            <Save className="mr-1 h-3 w-3" />
-                            Save Sample List
-                          </Button>
-                          <Button variant="outline" size="sm" onClick={handleSaveCSV}>
-                            <Save className="mr-1 h-3 w-3" />
-                            Save CSV
-                          </Button>
                           <Button
                             onClick={openAddSampleDialog}
                             className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
                           >
                             <Plus className="mr-2 h-4 w-4" />
-                            Add New Sample
+                            Start Adding Samples
                           </Button>
                         </div>
                       </div>
-
-                      <div className="border rounded-lg overflow-hidden">
+                    ) : (
+                      <div className="space-y-4">
                         <Table>
                           <TableHeader>
                             <TableRow>
-                              <TableHead className="w-12">#</TableHead>
-                              <TableHead>Sample Name</TableHead>
                               <TableHead>Category</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Form</TableHead>
+                              <TableHead>Sample Name</TableHead>
+                              <TableHead>Details</TableHead>
                               <TableHead className="text-right">Actions</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
                             {formData.samples.map((sample, index) => (
-                              <TableRow key={sample.id || `sample-${index}`}>
-                                <TableCell className="font-medium">
-                                  <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-blue-100 text-blue-700 text-xs">
-                                    {index + 1}
-                                  </span>
+                              <TableRow key={index}>
+                                <TableCell>
+                                  <Badge variant="outline">{sample.category}</Badge>
                                 </TableCell>
                                 <TableCell className="font-medium">{sample.generatedName}</TableCell>
                                 <TableCell>
-                                  {sample.category === "commercial"
-                                    ? "Commercial Grade"
-                                    : sample.category === "td"
-                                      ? "TD/NPD"
-                                      : sample.category === "benchmark"
-                                        ? "Benchmark"
-                                        : sample.category === "inprocess"
-                                          ? "Inprocess/Chemicals"
-                                          : sample.category === "chemicals"
-                                            ? "Chemicals/Substances"
-                                            : "Cap Development"}
+                                  <div className="text-sm text-muted-foreground">
+                                    {sample.category === "commercial" && `Grade: ${sample.grade}, Lot: ${sample.lot}`}
+                                    {sample.category === "td" && `Tech: ${sample.tech}, Feature: ${sample.feature}`}
+                                    {sample.category === "benchmark" && `Feature: ${sample.feature}`}
+                                    {(sample.category === "inprocess" || sample.category === "chemicals") &&
+                                      `Plant: ${sample.plant}`}
+                                    {sample.category === "cap" && `Feature: ${sample.feature}`}
+                                  </div>
                                 </TableCell>
-                                <TableCell>{sample.type}</TableCell>
-                                <TableCell>{sample.form}</TableCell>
                                 <TableCell className="text-right">
-                                  <div className="flex justify-end space-x-1">
-                                    <Button variant="ghost" size="icon" onClick={() => handleCopySample(sample)}>
-                                      <Copy className="h-4 w-4" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => handleEditSample(sample, index)}>
+                                  <div className="flex justify-end space-x-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => openEditSampleDialog(index)}
+                                    >
                                       <Pencil className="h-4 w-4" />
                                     </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => handleRemoveSample(index)}>
-                                      <Trash2 className="h-4 w-4 text-red-500" />
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleDeleteSample(index)}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
                                     </Button>
                                   </div>
                                 </TableCell>
@@ -2233,227 +1767,274 @@ export default function ASRPage() {
                             ))}
                           </TableBody>
                         </Table>
+                        <div className="flex justify-center">
+                          <Button
+                            onClick={openAddSampleDialog}
+                            variant="outline"
+                            className="w-full max-w-xs"
+                          >
+                            <Plus className="mr-2 h-4 w-4" />
+                            Add Another Sample
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
+                    )}
+                  </CardContent>
+                </Card>
+                <div className="flex justify-between mt-6">
+                  <div>
+                    {currentStep > 1 && (
+                      <Button
+                        variant="outline"
+                        onClick={prevStep}
+                      >
+                        <ChevronLeft className="mr-2 h-4 w-4" />
+                        Previous
+                      </Button>
+                    )}
+                  </div>
+                  <div>
+                    {currentStep < 6 && (
+                      <Button
+                        onClick={nextStep}
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                      >
+                        Next
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                    {currentStep === 6 && (
+                      <Button
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                        onClick={handleReviewAndSubmit}
+                      >
+                        Review and Submit
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
 
             {currentStep === 4 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Expected Results and Timeline</CardTitle>
-                  <CardDescription>Specify what results you expect and when you need them</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="expected-results">Expected Results</Label>
-                    <Textarea
-                      id="expected-results"
-                      name="expectedResults"
-                      value={formData.expectedResults}
-                      onChange={handleChange}
-                      placeholder="Describe what results or insights you expect to gain from this analysis"
-                      className={`min-h-[120px] ${!formData.expectedResults ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
-                    />
-                    {!formData.expectedResults && (
-                      <p className="text-sm text-red-500">Please enter expected results to continue</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="business-impact">Business Impact</Label>
-                    <Textarea
-                      id="business-impact"
-                      name="businessImpact"
-                      value={formData.businessImpact}
-                      onChange={handleChange}
-                      placeholder="Describe how this analysis will impact your business operations, decision-making, or product development"
-                      className="min-h-[100px]"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Label htmlFor="desired-completion-date">Desired Completion Date</Label>
-                      <TooltipProvider>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <HelpCircle className="h-4 w-4 text-muted-foreground" />
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="w-80 text-sm">
-                              Select the date by which you need the results. Note that complex analyses may require more
-                              time.
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      </TooltipProvider>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="desired-completion-date"
-                        name="desiredCompletionDate"
-                        type="date"
-                        value={formData.desiredCompletionDate}
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Expected Results and Timeline</CardTitle>
+                    <CardDescription>Specify what results you expect and when you need them</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="expected-results">Expected Results</Label>
+                      <Textarea
+                        id="expected-results"
+                        name="expectedResults"
+                        value={formData.expectedResults}
                         onChange={handleChange}
-                        className={`${!formData.desiredCompletionDate ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
+                        placeholder="Describe what results or insights you expect to gain from this analysis"
+                        className={`min-h-[120px] ${!formData.expectedResults ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
+                      />
+                      {!formData.expectedResults && (
+                        <p className="text-sm text-red-500">Please enter expected results to continue</p>
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="business-impact">Business Impact</Label>
+                      <Textarea
+                        id="business-impact"
+                        name="businessImpact"
+                        value={formData.businessImpact}
+                        onChange={handleChange}
+                        placeholder="Explain how these results will impact your business or project"
+                        className="min-h-[100px]"
                       />
                     </div>
-                    {!formData.desiredCompletionDate && (
-                      <p className="text-sm text-red-500">Please select a desired completion date to continue</p>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="completion-date">Desired Completion Date</Label>
+                      <Input
+                        id="completion-date"
+                        type="date"
+                        name="desiredCompletionDate"
+                        value={formData.desiredCompletionDate}
+                        onChange={handleChange}
+                        min={new Date().toISOString().split('T')[0]}
+                        className={`${!formData.desiredCompletionDate ? "ring-2 ring-blue-500 border-blue-500" : ""}`}
+                      />
+                      {!formData.desiredCompletionDate && (
+                        <p className="text-sm text-red-500">Please select a desired completion date</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+                <div className="flex justify-between mt-6">
+                  <div>
+                    {currentStep > 1 && (
+                      <Button
+                        variant="outline"
+                        onClick={prevStep}
+                      >
+                        <ChevronLeft className="mr-2 h-4 w-4" />
+                        Previous
+                      </Button>
                     )}
                   </div>
-                </CardContent>
-              </Card>
+                  <div>
+                    {currentStep < 6 && (
+                      <Button
+                        onClick={nextStep}
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                      >
+                        Next
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                    {currentStep === 6 && (
+                      <Button
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                        onClick={handleReviewAndSubmit}
+                      >
+                        Review and Submit
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
 
             {currentStep === 5 && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Capability Selection</CardTitle>
-                  <CardDescription>Select the capabilities you need for your analysis</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>Select Capability</Label>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Choose the capability that best matches your analysis needs. Our experts will
-                      review your selection.
-                    </p>
-
-                    {isLoadingCapabilities ? (
-                      <div className="flex justify-center items-center h-40">
-                        <div className="text-center">
-                          <div className="inline-block h-6 w-6 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-                          <p className="mt-2 text-sm text-muted-foreground">Loading capabilities...</p>
+              <>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Capability Selection</CardTitle>
+                    <CardDescription>Select the capabilities you need for your analysis</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>Select Capability</Label>
+                      <p className="text-sm text-muted-foreground mb-4">
+                        Choose the capability that best matches your analysis needs. Our experts will
+                        determine the most suitable methods based on your selection.
+                      </p>
+                      {loadingCapabilities ? (
+                        <div className="flex items-center justify-center p-8">
+                          <div className="animate-spin h-8 w-8 border-4 border-blue-500 rounded-full border-t-transparent"></div>
                         </div>
-                      </div>
-                    ) : capabilities.length === 0 ? (
-                      <div className="border rounded-md p-4 text-center">
-                        <p className="text-sm text-muted-foreground">No capabilities available</p>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {capabilities.map((capability) => (
-                          <div
-                            key={capability.id}
-                            className={`border rounded-lg p-4 cursor-pointer transition-all ${
-                              formData.selectedCapabilities.includes(capability.id)
-                                ? "border-primary bg-primary/5"
-                                : "hover:border-primary/50"
-                            }`}
-                            onClick={() => handleCapabilityToggle(capability.id)}
-                          >
-                            <div className="flex items-start space-x-3">
-                              <Checkbox
-                                id={`capability-${capability.id}`}
-                                checked={formData.selectedCapabilities.includes(capability.id)}
-                                onCheckedChange={() => handleCapabilityToggle(capability.id)}
-                                className="mt-1"
-                              />
-                              <div>
-                                <Label
-                                  htmlFor={`capability-${capability.id}`}
-                                  className="text-base font-medium cursor-pointer"
-                                >
-                                  {capability.name} ({capability.shortName})
-                                </Label>
-                                <p className="text-sm text-muted-foreground mt-1">{capability.description}</p>
-                              </div>
+                      ) : capabilitiesError ? (
+                        <div className="text-center p-8">
+                          <p className="text-red-500">Error loading capabilities: {capabilitiesError}</p>
+                        </div>
+                      ) : (
+                        <RadioGroup
+                          value={formData.selectedCapabilities[0] || ""}
+                          onValueChange={(value) => handleCapabilityChange(value)}
+                        >
+                          {capabilities.map((capability) => (
+                            <div key={capability._id} className="flex items-start space-x-3 p-4 border rounded-lg hover:bg-gray-50">
+                              <RadioGroupItem value={capability.name} id={capability._id} className="mt-1" />
+                              <Label htmlFor={capability._id} className="flex-1 cursor-pointer">
+                                <div>
+                                  <p className="font-medium">{capability.name}</p>
+                                  {capability.description && (
+                                    <p className="text-sm text-muted-foreground mt-1">{capability.description}</p>
+                                  )}
+                                </div>
+                              </Label>
                             </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {!isLoadingCapabilities && capabilities.length > 0 && formData.selectedCapabilities.length === 0 && (
-                      <p className="text-sm text-red-500 mt-2">Please select a capability to continue</p>
+                          ))}
+                        </RadioGroup>
+                      )}
+                      {formData.selectedCapabilities.length === 0 && (
+                        <p className="text-sm text-red-500 mt-2">Please select a capability to continue</p>
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+                <div className="flex justify-between mt-6">
+                  <div>
+                    {currentStep > 1 && (
+                      <Button
+                        variant="outline"
+                        onClick={prevStep}
+                      >
+                        <ChevronLeft className="mr-2 h-4 w-4" />
+                        Previous
+                      </Button>
                     )}
                   </div>
-                </CardContent>
-              </Card>
+                  <div>
+                    {currentStep < 6 && (
+                      <Button
+                        onClick={nextStep}
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                      >
+                        Next
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                    {currentStep === 6 && (
+                      <Button
+                        className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                        onClick={handleReviewAndSubmit}
+                      >
+                        Review and Submit
+                        <ChevronRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
 
             {currentStep === 6 && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Additional Information</CardTitle>
-                  <CardDescription>Provide any additional details or attachments</CardDescription>
+                  <CardTitle>Attachments</CardTitle>
+                  <CardDescription>Upload any supporting documents or files</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="additional-requirements">Additional Requirements or Comments</Label>
-                    <Textarea
-                      id="additional-requirements"
-                      name="additionalRequirements"
-                      value={formData.additionalRequirements}
-                      onChange={handleChange}
-                      placeholder="Any additional information that might help with the analysis"
-                      className="min-h-[120px]"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
                     <Label>Attachments</Label>
                     <p className="text-sm text-muted-foreground mb-2">
-                      Upload relevant files such as sample images, previous test results, or specifications
+                      Upload any relevant documents, images, or data files that might help with the analysis
                     </p>
-
-                    <div className="flex items-center space-x-2">
-                      <Input id="file-upload" type="file" className="hidden" multiple onChange={handleAttachmentChange} />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => document.getElementById("file-upload")?.click()}
-                        className="gap-2"
+                    <div className="border-2 border-dashed rounded-lg p-6">
+                      <input
+                        type="file"
+                        multiple
+                        onChange={handleFileSelect}
+                        className="hidden"
+                        id="file-upload"
+                        ref={fileInputRef}
+                      />
+                      <label
+                        htmlFor="file-upload"
+                        className="flex flex-col items-center justify-center cursor-pointer"
                       >
-                        <Upload className="h-4 w-4" />
-                        Upload Files
-                      </Button>
-                      <p className="text-sm text-muted-foreground">
-                        {formData.attachments.length > 0
-                          ? `${formData.attachments.length} file(s) attached`
-                          : "No files attached"}
-                      </p>
+                        <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                        <p className="text-sm font-medium">Click to upload or drag and drop</p>
+                        <p className="text-xs text-muted-foreground mt-1">PDF, DOC, DOCX, XLS, XLSX, PNG, JPG up to 10MB each</p>
+                      </label>
                     </div>
-
                     {formData.attachments.length > 0 && (
-                      <div className="mt-4 space-y-2 max-h-[200px] overflow-y-auto border rounded-md p-3">
+                      <div className="space-y-2 mt-4">
+                        <Label>Uploaded Files</Label>
                         {formData.attachments.map((file, index) => (
-                          <div
-                            key={index}
-                            className="flex justify-between items-center p-2 hover:bg-gray-50 rounded-md"
-                          >
+                          <div key={index} className="flex items-center justify-between p-2 border rounded">
                             <div className="flex items-center space-x-2">
                               <Paperclip className="h-4 w-4 text-muted-foreground" />
                               <span className="text-sm">{file.name}</span>
-                              <span className="text-xs text-muted-foreground">
-                                ({(file.size / 1024).toFixed(1)} KB)
-                              </span>
+                              <span className="text-xs text-muted-foreground">({(file.size / 1024).toFixed(1)} KB)</span>
                             </div>
                             <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleRemoveFile(index)}
-                              className="text-red-500 h-8 w-8 p-0"
                             >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                width="16"
-                                height="16"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                stroke="currentColor"
-                                strokeWidth="2"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                              >
-                                <path d="M18 6 6 18" />
-                                <path d="m6 6 12 12" />
-                              </svg>
+                              <X className="h-4 w-4" />
                             </Button>
                           </div>
                         ))}
@@ -2463,32 +2044,6 @@ export default function ASRPage() {
                 </CardContent>
               </Card>
             )}
-
-            <div className="mt-6 flex justify-between">
-              {currentStep > 1 && (
-                <Button variant="outline" onClick={prevStep}>
-                  <ChevronLeft className="mr-2 h-4 w-4" />
-                  Previous
-                </Button>
-              )}
-              {currentStep < 6 ? (
-                <Button
-                  className="ml-auto bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                  onClick={nextStep}
-                >
-                  Next
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
-              ) : (
-                <Button
-                  className="ml-auto bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                  onClick={handleReviewAndSubmit}
-                >
-                  Review and Submit
-                  <ChevronRight className="ml-2 h-4 w-4" />
-                </Button>
-              )}
-            </div>
           </div>
 
           <div className="md:col-span-1">
@@ -2500,83 +2055,58 @@ export default function ASRPage() {
               <CardContent>
                 <div className="space-y-4">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Request Title</p>
-                    <p className="font-medium">{formData.requestTitle || "Not specified"}</p>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Priority</p>
-                    <p className="font-medium capitalize">{formData.priority}</p>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">IO Number</p>
+                    <p className="text-sm font-medium text-muted-foreground">Project Category</p>
                     <p className="font-medium">
-                      {formData.useIONumber === "yes" ? formData.ioNumber || "Not selected" : "Not using IO Number"}
+                      {formData.projectCategory === "Other" 
+                        ? formData.projectCategoryOther || "Other (not specified)"
+                        : formData.projectCategory || "Not specified"}
                     </p>
                   </div>
 
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Samples</p>
-                    <p className="text-2xl font-bold">{formData.samples.length}</p>
+                    <p className="text-sm font-medium text-muted-foreground">Sample Sources</p>
+                    <p className="font-medium">
+                      {formData.sampleSources.length > 0 
+                        ? formData.sampleSources.join(", ")
+                        : "Not specified"}
+                    </p>
                   </div>
 
-                  {formData.priority === "urgent" && formData.approver && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Approver</p>
-                      <p className="font-medium">
-                        {approvers.find(a => a.value === formData.approver)?.label || "Not selected"}
-                      </p>
-                    </div>
-                  )}
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Number of Samples</p>
+                    <p className="font-medium">{formData.samples.length}</p>
+                  </div>
 
-                  {formData.isOnBehalf && formData.onBehalfOfName && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">On Behalf Of</p>
-                      <p className="font-medium">{formData.onBehalfOfName}</p>
-                      <p className="text-xs text-muted-foreground">{formData.onBehalfOfEmail}</p>
-                      <p className="text-xs text-muted-foreground">Cost Center: {formData.onBehalfOfCostCenter || "Not available"}</p>
-                    </div>
-                  )}
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Selected Capability</p>
+                    <p className="font-medium">
+                      {formData.selectedCapabilities.length > 0
+                        ? formData.selectedCapabilities[0]
+                        : "Not selected"}
+                    </p>
+                  </div>
 
-                  {formData.selectedCapabilities.length > 0 && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Selected Capabilities</p>
-                      <div className="flex flex-wrap gap-1 mt-1">
-                        {formData.selectedCapabilities.map((capId) => {
-                          const cap = capabilities.find((c) => c.id === capId)
-                          return cap ? (
-                            <span key={capId} className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
-                              {cap.name} ({cap.shortName})
-                            </span>
-                          ) : null
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {formData.desiredCompletionDate && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Desired Completion</p>
-                      <p className="font-medium">{formData.desiredCompletionDate}</p>
-                    </div>
-                  )}
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground">Priority</p>
+                    <Badge variant={formData.priority === "urgent" ? "destructive" : "default"}>
+                      {formData.priority}
+                    </Badge>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* Help card */}
-            <Card className="bg-blue-50 border-blue-200">
+            <Card>
               <CardHeader>
-                <CardTitle className="text-blue-800">About ASR Requests</CardTitle>
+                <CardTitle className="flex items-center gap-2">
+                  <HelpCircle className="h-4 w-4" />
+                  Need Help?
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-blue-700 text-sm mb-4">
-                  Analysis Solution Requests (ASR) are designed for complex analytical problems that require expert
-                  consultation and customized testing approaches.
-                </p>
-                <p className="text-blue-700 text-sm">
-                  Your request will be reviewed by capability experts who will work with you to develop the best
+                <p className="text-sm text-muted-foreground">
+                  Analysis Solution Requests are for complex polymer characterization problems that require custom
                   analytical approach for your needs.
                 </p>
               </CardContent>
@@ -2584,63 +2114,30 @@ export default function ASRPage() {
           </div>
         </div>
       </div>
-      <Dialog open={sampleDialogOpen} onOpenChange={setSampleDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>{editMode ? "Edit Sample" : "Add New Sample"}</DialogTitle>
-            <DialogDescription>
-              {editMode
-                ? "Modify the sample details below"
-                : "Fill out the sample details to add a new sample to your request"}
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-6 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="sample-category">Sample Category</Label>
-              <Select
-                value={sampleCategory}
-                onValueChange={(value) => {
-                  setSampleCategory(value)
-                  setCurrentSample((prev) => ({
-                    ...prev,
-                    category: value,
-                  }))
-                }}
-              >
-                <SelectTrigger id="sample-category" className={highlightedField === "sample-category" ? "ring-2 ring-blue-500 border-blue-500" : ""}>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="commercial">Commercial Grade</SelectItem>
-                  <SelectItem value="td">TD/NPD</SelectItem>
-                  <SelectItem value="benchmark">Benchmark</SelectItem>
-                  <SelectItem value="inprocess">Inprocess</SelectItem>
-                  <SelectItem value="chemicals">Chemicals/Substances</SelectItem>
-                  <SelectItem value="cap">Cap Development</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {sampleCategory && (
-              <div className="space-y-6">
-                {renderSampleFields()}
-                <div className="space-y-2">
-                  <Label htmlFor="generated-name">Generated Sample Name</Label>
-                  <Input id="generated-name" value={currentSample.generatedName || ""} disabled className="bg-gray-100 font-medium" autoComplete="off" />
-                </div>
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setSampleDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleAddSample} disabled={!currentSample.generatedName} className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600">
-              {editMode ? "Update Sample" : "Add Sample"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EnhancedSampleDialog
+        open={sampleDialogOpen}
+        onOpenChange={setSampleDialogOpen}
+        currentSample={currentSample}
+        sampleCategory={sampleCategory as SampleCategory}
+        editMode={editMode}
+        onSampleChange={handleSampleChange}
+        onSampleCategoryChange={handleSampleCategoryChange}
+        onAddSample={handleAddSample}
+        gradeOptions={commercialGrades}
+        techCatOptions={techCatOptions}
+        featureAppOptions={featureAppOptions}
+        typeOptions={typeOptions}
+        formOptions={formOptions}
+        plantOptions={plantOptions}
+        capabilityOptions={capabilities.map(cap => ({
+          value: cap.id,
+          label: `${cap.shortName} - ${cap.name}`
+        }))}
+        loadingGrades={loadingGrades}
+        loadingAppTechs={loadingAppTechs}
+        gradeError={gradesError}
+        appTechError={appTechError}
+      />
 
       {/* Save Sample Set Dialog */}
       <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
@@ -2670,163 +2167,67 @@ export default function ASRPage() {
                 rows={3}
               />
             </div>
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                <strong>IO Number:</strong> {formData.ioNumber || 'No IO Number'}
-              </p>
-              <p className="text-sm text-muted-foreground">
-                <strong>Total Samples:</strong> {formData.samples.length}
-              </p>
-              {formData.ioNumber && (
-                <p className="text-xs text-muted-foreground">
-                  This sample set will be shared with other users who have access to IO {formData.ioNumber}
-                </p>
-              )}
-            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowSaveDialog(false);
-              setSampleListName("");
-              setSampleListDescription("");
-            }}>
+            <Button variant="outline" onClick={() => setShowSaveDialog(false)}>
               Cancel
             </Button>
-            <Button 
-              onClick={handleSaveSampleSet}
-              disabled={savingSampleList || !sampleListName.trim()}
-            >
-              {savingSampleList ? (
-                <>
-                  <div className="animate-spin h-4 w-4 border-2 border-white rounded-full border-t-transparent mr-2"></div>
-                  Saving...
-                </>
-              ) : (
-                <>
-                  <Save className="mr-2 h-4 w-4" />
-                  Save Sample Set
-                </>
-              )}
+            <Button onClick={handleSaveSampleSet} disabled={!sampleListName.trim()}>
+              Save Sample Set
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Load Sample Set Dialog */}
-      <Dialog open={showLoadDialog} onOpenChange={(open) => {
-        setShowLoadDialog(open);
-        if (!open) setSampleListSearchQuery(""); // Reset search when closing
-      }}>
+      {/* Load Sample Dialog */}
+      <Dialog open={showLoadDialog} onOpenChange={setShowLoadDialog}>
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Load Sample List</DialogTitle>
             <DialogDescription>Select a saved sample set to load</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            {/* Saved Sample Sets Section */}
-            <div>
-              <h4 className="font-medium mb-2">Choose from saved sample sets</h4>
-              {loadingSampleLists ? (
-                <div className="flex items-center justify-center py-8">
-                  <div className="animate-spin h-8 w-8 border-4 border-blue-500 rounded-full border-t-transparent"></div>
-                </div>
-              ) : savedSampleLists.length === 0 ? (
-                <div className="text-center py-8">
-                  <p className="text-muted-foreground">No saved sample sets found.</p>
-                  <p className="text-sm text-muted-foreground mt-2">
-                    Save a sample set first or check if you have the correct IO number.
-                  </p>
-                </div>
-              ) : (
-                <>
-                  {/* Search Box */}
-                  <div className="space-y-2 mb-4">
-                    <Label htmlFor="sample-set-search">Search Sample Sets</Label>
-                    <Input
-                      id="sample-set-search"
-                      type="text"
-                      placeholder="Search by name, description, IO number, or sample content..."
-                      value={sampleListSearchQuery}
-                      onChange={(e) => setSampleListSearchQuery(e.target.value)}
-                      className="w-full"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Search includes sample set names, descriptions, and all sample data fields
-                    </p>
-                  </div>
-
-                  {/* Results */}
-                  <div className="max-h-[400px] overflow-y-auto space-y-2">
-                    {filteredSampleLists.length === 0 ? (
-                      <div className="text-center py-8">
-                        <p className="text-muted-foreground">No sample sets match your search.</p>
-                        <p className="text-sm text-muted-foreground mt-2">
-                          Try a different search term or clear the search.
-                        </p>
+            {loadingSampleLists ? (
+              <div className="flex items-center justify-center p-8">
+                <div className="animate-spin h-8 w-8 border-4 border-blue-500 rounded-full border-t-transparent"></div>
+              </div>
+            ) : savedSampleLists.length === 0 ? (
+              <div className="text-center p-8">
+                <p className="text-muted-foreground">No saved sample sets found</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {savedSampleLists.map((set) => (
+                  <div
+                    key={set._id}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                    onClick={() => {
+                      loadSampleSet(set)
+                      setShowLoadDialog(false)
+                    }}
+                  >
+                    <div className="flex-1">
+                      <h4 className="font-medium">{set.sampleSetName}</h4>
+                      {set.description && (
+                        <p className="text-sm text-muted-foreground mt-1">{set.description}</p>
+                      )}
+                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                        <span>{set.sampleCount} samples</span>
+                        <span>Created {new Date(set.createdAt).toLocaleDateString()}</span>
                       </div>
-                    ) : (
-                      <>
-                        <p className="text-sm text-muted-foreground">
-                          Showing {filteredSampleLists.length} of {savedSampleLists.length} sample sets
-                        </p>
-                        {filteredSampleLists.map((list) => (
-                          <div
-                            key={list._id}
-                            className="border rounded-lg p-4 hover:bg-muted cursor-pointer transition-colors"
-                            onClick={() => handleLoadSampleSet(list)}
-                          >
-                            <div className="flex justify-between items-start">
-                              <div className="flex-1">
-                                <h4 className="font-medium">{list.sampleSetName}</h4>
-                                {list.description && (
-                                  <p className="text-sm text-muted-foreground mt-1">{list.description}</p>
-                                )}
-                                <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                                  <span>{list.sampleCount} sample(s)</span>
-                                  <span>IO: {list.ioNumber || 'None'}</span>
-                                  <span>By: {list.requesterName}</span>
-                                  <span>{new Date(list.createdAt).toLocaleDateString()}</span>
-                                </div>
-                              </div>
-                              <div className="ml-4 flex items-center gap-2">
-                                {list.isOwner ? (
-                                  <>
-                                    <Badge variant="outline" className="text-xs">Your Set</Badge>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-8 w-8 text-red-500 hover:text-red-600 hover:bg-red-50"
-                                      onClick={(e) => handleDeleteSampleSet(list._id, list.sampleSetName, e)}
-                                      title="Delete this sample set"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </>
-                                ) : (
-                                  <Badge variant="outline" className="text-xs">Shared</Badge>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </>
-                    )}
+                    </div>
                   </div>
-                </>
-              )}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => {
-              setShowLoadDialog(false);
-              setSampleListSearchQuery("");
-            }}>
+            <Button variant="outline" onClick={() => setShowLoadDialog(false)}>
               Cancel
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </DashboardLayout>
-  )
+  );
 }
-

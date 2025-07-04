@@ -21,7 +21,7 @@ export function SampleTable({ samples, onCopySample, onEditSample, onRemoveSampl
       case "benchmark":
         return "Benchmark";
       case "inprocess":
-        return "Inprocess/Chemicals";
+        return "Inprocess";
       case "chemicals":
         return "Chemicals/Substances";
       case "cap":

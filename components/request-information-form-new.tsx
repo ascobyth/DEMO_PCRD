@@ -125,36 +125,7 @@ export function RequestInformationForm({
             )}
           </div>
 
-          {/* Priority */}
-          <div>
-            <Label className="text-sm font-medium mb-3 block">
-              Priority <span className="text-red-500">*</span>
-            </Label>
-            <RadioGroup
-              value={formData.priority}
-              onValueChange={(value) => onSelectChange("priority", value)}
-              className="space-y-3"
-            >
-              <div className="flex items-start space-x-3">
-                <RadioGroupItem value="normal" id="priority-normal" className="mt-0.5" />
-                <div>
-                  <Label htmlFor="priority-normal" className="font-normal cursor-pointer">
-                    Normal
-                  </Label>
-                  <p className="text-sm text-muted-foreground">Approximately 14 working days</p>
-                </div>
-              </div>
-              <div className="flex items-start space-x-3">
-                <RadioGroupItem value="urgent" id="priority-urgent" className="mt-0.5" />
-                <div>
-                  <Label htmlFor="priority-urgent" className="font-normal cursor-pointer">
-                    Urgent
-                  </Label>
-                  <p className="text-sm text-muted-foreground">Minimum 5 days, higher cost</p>
-                </div>
-              </div>
-            </RadioGroup>
-          </div>
+
 
           {/* Cost Center */}
           <div>

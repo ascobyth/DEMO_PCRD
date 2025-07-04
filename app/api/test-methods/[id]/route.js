@@ -428,7 +428,6 @@ export async function PUT(request, { params }) {
     console.log('Updating test method with ID:', id);
     console.log('Received body data:', body);
 
-    // The model now handles methodCode/methodcode mapping via virtual field
 
     // Ensure price fields are stored in the correct format
     // Keep them as strings if that's how they're stored in the database

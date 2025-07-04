@@ -1,74 +1,75 @@
 "use client"
 
+import { Label } from "@/components/ui/label"
+import { Checkbox } from "@/components/ui/checkbox"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { SampleSelectionList } from "@/components/sample-selection-list"
 import { useState, useEffect } from "react"
+import { useSearchParams } from "next/navigation"
 import Link from "next/link"
-import { ChevronLeft, Check, AlertCircle, ArrowRight } from "lucide-react"
+import { ChevronLeft, Check, AlertCircle, Printer, Trash2, Edit, RefreshCw, ChevronDown, ChevronUp, CalendarIcon } from "lucide-react"
 import DashboardLayout from "@/components/dashboard-layout"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Separator } from "@/components/ui/separator"
-import { Textarea } from "@/components/ui/textarea"
+import { Input } from "@/components/ui/input"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import { format } from "date-fns"
+import { cn } from "@/lib/utils"
 import { toast } from "@/components/ui/use-toast"
+import { useAuth } from "@/components/auth-provider"
 
 export default function ASRSummaryPage() {
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const searchParams = useSearchParams()
+  const editRequestId = searchParams.get('edit')
+  const duplicateRequestId = searchParams.get('duplicate')
+  const isEditMode = !!editRequestId
+  const isDuplicateMode = !!duplicateRequestId
+  const { user } = useAuth()
 
+  // Initialize with empty data, will be populated from localStorage
   const [requestData, setRequestData] = useState({
-    requestId: "ASR-XXXX-0000",
-    requestTitle: "PP Degradation Investigation",
+    requestId: "Will be assigned upon submission",
+    requestTitle: "",
     priority: "normal",
     useIONumber: "yes",
-    ioNumber: "0090919391",
-    costCenter: "0090-01560",
-    problemSource: "production",
-    testObjective:
-      "Investigate the cause of unexpected degradation in PP products during processing. We need to understand if the issue is related to thermal stability, contamination, or other factors.",
-    expectedResults:
-      "Identification of the root cause of degradation and recommendations for process adjustments to prevent the issue.",
-    businessImpact: "",
-    desiredCompletionDate: "2023-11-15",
-    samples: [
-      {
-        generatedName: "PP1100NK_L2023001_A1",
-        category: "commercial",
-        type: "PP",
-        form: "Pellet",
-      },
-      {
-        generatedName: "PP2100JC_L2023002_B1",
-        category: "commercial",
-        type: "PP",
-        form: "Pellet",
-      },
-      {
-        generatedName: "PP1_2023-10-15_14:30_Sample3",
-        category: "inprocess",
-        type: "PP",
-        form: "Pellet",
-      },
-    ],
-    selectedCapabilities: ["rheology", "small-molecule"],
-    additionalRequirements:
-      "We would like to compare the degraded samples with standard samples to identify differences. Please include thermal stability analysis and check for potential contaminants.",
-    attachments: [
-      { name: "degradation_images.zip", size: 2560000 },
-      { name: "process_conditions.pdf", size: 1240000 },
-    ],
-    estimatedCompletion: "2023-11-20",
-    estimatedCost: "25000-35000 THB",
-    requester: {
-      name: "John Doe",
-      department: "R&D",
-      email: "john.doe@example.com",
-      phone: "123-456-7890",
-    },
-    // Urgency fields
-    urgencyType: "",
+    ioNumber: "",
+    costCenter: "",
+    urgentType: "",
     urgencyReason: "",
-    approver: "",
-    urgentMemo: null as File | null,
-    // On behalf fields
+    approver: null,
+    urgentMemo: null,
+    problemSource: "",
+    testObjective: "",
+    expectedResults: "",
+    businessImpact: "",
+    desiredCompletionDate: "",
+    samples: [],
+    selectedCapabilities: [],
+    pcrdResponsiblePerson: "",
+    pcrdPersonSpecified: false,
+    additionalRequirements: "",
+    attachments: [],
+    estimatedCompletion: "7-14 days",
+    estimatedCost: "To be determined",
+    requester: {
+      name: "",
+      department: "",
+      email: "",
+      phone: "",
+    },
+    submissionDate: new Date().toISOString().split('T')[0],
+    status: "draft",
     isOnBehalf: false,
     onBehalfOfUser: "",
     onBehalfOfName: "",
@@ -76,35 +77,79 @@ export default function ASRSummaryPage() {
     onBehalfOfCostCenter: "",
   })
 
+  // State for disabling inputs after submit
+  const [isSubmitted, setIsSubmitted] = useState(false)
+
+  // Load all form data from localStorage when the component mounts
   useEffect(() => {
     try {
-      const savedForm = localStorage.getItem("asrFormData")
-      if (savedForm) {
-        const parsed = JSON.parse(savedForm)
-        setRequestData((prev) => ({ ...prev, ...parsed }))
+      // Load the main form data
+      const savedFormData = localStorage.getItem("asrFormData")
+      if (savedFormData) {
+        const parsedFormData = JSON.parse(savedFormData)
+        console.log("Loaded form data from localStorage:", parsedFormData)
+
+        // Update the request data with the form values
+        setRequestData(prev => ({
+          ...prev,
+          requestTitle: parsedFormData.requestTitle || prev.requestTitle,
+          priority: parsedFormData.priority || prev.priority || "normal",
+          useIONumber: parsedFormData.useIONumber || prev.useIONumber,
+          ioNumber: parsedFormData.ioNumber || prev.ioNumber,
+          costCenter: parsedFormData.costCenter || prev.costCenter,
+          urgentType: parsedFormData.urgentType || prev.urgentType,
+          urgencyReason: parsedFormData.urgencyReason || prev.urgencyReason,
+          approver: parsedFormData.approver || prev.approver,
+          problemSource: parsedFormData.problemSource || prev.problemSource,
+          testObjective: parsedFormData.testObjective || prev.testObjective,
+          expectedResults: parsedFormData.expectedResults || prev.expectedResults,
+          businessImpact: parsedFormData.businessImpact || prev.businessImpact,
+          desiredCompletionDate: parsedFormData.desiredCompletionDate || prev.desiredCompletionDate,
+          selectedCapabilities: parsedFormData.selectedCapabilities || prev.selectedCapabilities,
+          pcrdResponsiblePerson: parsedFormData.pcrdResponsiblePerson || prev.pcrdResponsiblePerson,
+          pcrdPersonSpecified: parsedFormData.pcrdPersonSpecified || prev.pcrdPersonSpecified,
+          additionalRequirements: parsedFormData.additionalRequirements || prev.additionalRequirements,
+          attachments: parsedFormData.attachments || prev.attachments,
+          isOnBehalf: parsedFormData.isOnBehalf || prev.isOnBehalf,
+          onBehalfOfName: parsedFormData.onBehalfOfName || prev.onBehalfOfName,
+          onBehalfOfEmail: parsedFormData.onBehalfOfEmail || prev.onBehalfOfEmail,
+          onBehalfOfCostCenter: parsedFormData.onBehalfOfCostCenter || prev.onBehalfOfCostCenter,
+        }))
       }
+
+      // Load requester information from authenticated user
+      if (user) {
+        setRequestData(prev => ({
+          ...prev,
+          requester: {
+            name: user.name || user.username || prev.requester.name,
+            email: user.email || prev.requester.email,
+            department: user.department || prev.requester.department,
+            phone: user.phone || prev.requester.phone,
+          }
+        }))
+      }
+
+      // Load samples from localStorage
       const savedSamples = localStorage.getItem("asrSamples")
       if (savedSamples) {
         const parsedSamples = JSON.parse(savedSamples)
-        setRequestData((prev) => ({ ...prev, samples: parsedSamples }))
-      }
-      const userData = localStorage.getItem("pcrd_user")
-      if (userData) {
-        const parsedUser = JSON.parse(userData)
+        console.log("Loaded samples from localStorage:", parsedSamples)
+
         setRequestData((prev) => ({
           ...prev,
-          requester: {
-            name: parsedUser.name || parsedUser.username || prev.requester.name,
-            email: parsedUser.email || prev.requester.email,
-            department: parsedUser.department || prev.requester.department,
-            phone: parsedUser.phone || prev.requester.phone,
-          },
+          samples: parsedSamples,
         }))
       }
-    } catch (e) {
-      console.error("Error loading ASR data:", e)
+    } catch (error) {
+      console.error("Error loading data from localStorage:", error)
+      toast({
+        title: "Error loading data",
+        description: "There was a problem loading your request data. Some information may be missing.",
+        variant: "destructive",
+      })
     }
-  }, [])
+  }, [user])
 
   // State to store capabilities loaded from the API
   const [loadedCapabilities, setLoadedCapabilities] = useState<any[]>([])
@@ -129,13 +174,15 @@ export default function ASRSummaryPage() {
   }, [])
 
   const handleSubmit = async () => {
-    setIsSubmitting(true)
+    try {
+      // Set submitted state to disable inputs
+      setIsSubmitted(true)
 
-    // Notify the user that submission has started
-    toast({
-      title: 'Submitting request...',
-      description: 'Please wait while we process your submission.',
-    })
+      // Show loading toast
+      toast({
+        title: isDuplicateMode ? "Duplicating request..." : isEditMode ? "Updating request..." : "Submitting request...",
+        description: "Please wait while we process your submission.",
+      })
 
     // Get the selected capability 
     const selectedCapability = requestData.selectedCapabilities.length > 0 ? 
@@ -176,7 +223,7 @@ export default function ASRSummaryPage() {
           description: 'Selected capability not found. Please go back and select a capability again.',
           variant: 'destructive'
         });
-        setIsSubmitting(false);
+        setIsSubmitted(false);
         return;
       }
     } else if (!selectedCapability) {
@@ -213,6 +260,8 @@ export default function ASRSummaryPage() {
       capabilityId: selectedCapability, // This can be the ID or shortName
       capabilityShortName: capabilityShortName, // Explicitly include the shortName
       capabilityName: capabilityName, // Include the full capability name
+      pcrdResponsiblePerson: requestData.pcrdResponsiblePerson,
+      pcrdPersonSpecified: requestData.pcrdPersonSpecified,
       useIoNumber: requestData.useIONumber === 'yes',
       ioCostCenter: requestData.useIONumber === 'yes' ? requestData.ioNumber : '',
       requesterCostCenter: requestData.costCenter,
@@ -275,23 +324,40 @@ export default function ASRSummaryPage() {
           window.location.href = '/request/new/asr/confirmation'
         }, 1000)
       } else {
+        // Reset submitted state on error
+        setIsSubmitted(false);
         toast({
           title: 'Submission failed',
           description: result.error || 'An error occurred while submitting your request.',
           variant: 'destructive',
         })
       }
-    } catch (error) {
-      console.error('Error submitting ASR:', error)
+    } catch (fetchError) {
+      console.error("Fetch error:", fetchError);
 
-      const message = error instanceof Error ? error.message : 'Could not connect to the server. Please try again.'
+      // Reset submitted state on error
+      setIsSubmitted(false);
+      
+      // Show detailed error to user
       toast({
-        title: 'Submission failed',
-        description: message,
-        variant: 'destructive',
-      })
-    } finally {
-      setIsSubmitting(false)
+        title: "Network Error",
+        description: `Failed to ${isEditMode ? 'update' : 'submit'} request: ${fetchError.message}`,
+        variant: "destructive",
+      });
+    }
+    } catch (error) {
+      console.error("Error submitting request:", error);
+      
+      // Reset submitted state on error
+      setIsSubmitted(false);
+
+      // Show detailed error
+      const errorMessage = error.message || "An unexpected error occurred";
+      toast({
+        title: "Submission failed",
+        description: errorMessage,
+        variant: "destructive",
+      });
     }
   }
 
@@ -309,12 +375,19 @@ export default function ASRSummaryPage() {
 
         <div className="flex flex-col space-y-2">
           <div className="flex items-center justify-between">
-            <h1 className="text-3xl font-bold tracking-tight">Review ASR Request</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {isEditMode ? "Edit ASR Request" : "ASR Request Summary"}
+            </h1>
             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200">
-              Draft
+              {isEditMode ? "Editing" : "Draft"}
             </Badge>
           </div>
-          <p className="text-muted-foreground">Review your request details before submission</p>
+          <p className="text-muted-foreground">
+            {isEditMode
+              ? "Review and update your ASR request details"
+              : "Review your ASR request details before submission"
+            }
+          </p>
         </div>
 
         <div className="grid gap-6 md:grid-cols-3">
@@ -327,103 +400,82 @@ export default function ASRSummaryPage() {
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Request ID</p>
-                    <p className="text-muted-foreground italic">To be confirmed after submit</p>
+                    <Label className="text-sm">Request ID</Label>
+                    <Input value={requestData.requestId} disabled className="mt-1" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Priority</p>
-                    <p className="capitalize">{requestData.priority}</p>
+                    <Label className="text-sm">Submission Date</Label>
+                    <Input value={requestData.submissionDate} disabled className="mt-1" />
                   </div>
                   <div className="col-span-2">
-                    <p className="text-sm font-medium text-muted-foreground">Request Title</p>
-                    <p>{requestData.requestTitle}</p>
+                    <Label className="text-sm">Request Title</Label>
+                    <Input value={requestData.requestTitle} disabled className="mt-1" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">IO Number</p>
-                    <p>{requestData.ioNumber}</p>
+                    <Label className="text-sm">Priority</Label>
+                    <Input value={requestData.priority || "normal"} disabled className="mt-1 capitalize" />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Cost Center</p>
-                    <p>{requestData.costCenter}</p>
+                    <Label className="text-sm">Use IO Number</Label>
+                    <Input value={requestData.useIONumber === "yes" ? "Yes" : "No"} disabled className="mt-1" />
                   </div>
+                  <div>
+                    <Label className="text-sm">IO Number</Label>
+                    <Input value={requestData.ioNumber || "-"} disabled className="mt-1" />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Cost Center</Label>
+                    <Input value={requestData.costCenter || "-"} disabled className="mt-1" />
+                  </div>
+                  {requestData.priority === "urgent" && (
+                    <>
+                      <div>
+                        <Label className="text-sm">Urgent Type</Label>
+                        <Input value={requestData.urgentType || "-"} disabled className="mt-1" />
+                      </div>
+                      <div className="col-span-2">
+                        <Label className="text-sm">Urgency Reason</Label>
+                        <Input value={requestData.urgencyReason || "-"} disabled className="mt-1" />
+                      </div>
+                      {requestData.approver && (
+                        <div>
+                          <Label className="text-sm">Approver</Label>
+                          <Input value={requestData.approver} disabled className="mt-1" />
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {/* ASR-specific fields */}
+                  <div>
+                    <Label className="text-sm">Problem Source</Label>
+                    <Input value={requestData.problemSource || "-"} disabled className="mt-1 capitalize" />
+                  </div>
+                  <div>
+                    <Label className="text-sm">Desired Completion Date</Label>
+                    <Input value={requestData.desiredCompletionDate || "-"} disabled className="mt-1" />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-sm">Backgrounds/Problem Details</Label>
+                    <Input value={requestData.testObjective || "-"} disabled className="mt-1" />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-sm">Specific Questions for PCRD</Label>
+                    <Input value={requestData.additionalRequirements || "-"} disabled className="mt-1" />
+                  </div>
+                  <div className="col-span-2">
+                    <Label className="text-sm">Expected Results</Label>
+                    <Input value={requestData.expectedResults || "-"} disabled className="mt-1" />
+                  </div>
+                  {requestData.businessImpact && (
+                    <div className="col-span-2">
+                      <Label className="text-sm">Business Impact</Label>
+                      <Input value={requestData.businessImpact} disabled className="mt-1" />
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
 
-            {/* On Behalf Details - Only show if creating on behalf of someone */}
-            {requestData.isOnBehalf && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>On Behalf Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Created On Behalf Of</p>
-                    <p>{requestData.onBehalfOfName || "Not specified"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Email</p>
-                    <p>{requestData.onBehalfOfEmail || "Not specified"}</p>
-                  </div>
-                  {requestData.onBehalfOfCostCenter && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Cost Center</p>
-                      <p>{requestData.onBehalfOfCostCenter}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Urgent Request Details - Only show if priority is urgent */}
-            {requestData.priority === "urgent" && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Urgent Request Details</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Urgency Type</p>
-                    <p className="capitalize">
-                      {requestData.urgencyType?.replace(/_/g, ' ') || "Not specified"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Reason for Urgency</p>
-                    <p>{requestData.urgencyReason || "Not specified"}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Approver</p>
-                    <p>{requestData.approver || "Not specified"}</p>
-                  </div>
-                  {requestData.urgentMemo && (
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Urgent Request Memo</p>
-                      <p>{requestData.urgentMemo.name}</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Problem Description */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Problem Description</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Problem Source</p>
-                  <p className="capitalize">
-                    {requestData.problemSource === "production" ? "Production Issue" : requestData.problemSource}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Test Objectives</p>
-                  <p>{requestData.testObjective}</p>
-                </div>
-              </CardContent>
-            </Card>
 
             {/* Samples */}
             <Card>
@@ -432,111 +484,207 @@ export default function ASRSummaryPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  {requestData.samples.map((sample, index) => (
-                    <div key={index} className="flex justify-between items-center p-3 border rounded-md">
-                      <div>
-                        <p className="font-medium">{sample.generatedName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {sample.category} • {sample.type} • {sample.form}
-                        </p>
-                      </div>
-                      <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
-                        <Check className="h-3 w-3 mr-1" /> Ready
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
+                  {requestData.samples.map((sample, index) => {
+                    // Create a unique key using id or index as fallback
+                    const uniqueKey = sample.id || `sample-${index}-${sample.name || sample.generatedName || index}`;
 
-            {/* Expected Results and Timeline */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Expected Results and Timeline</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Expected Results</p>
-                  <p>{requestData.expectedResults}</p>
-                </div>
-                {requestData.businessImpact && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground">Business Impact</p>
-                    <p>{requestData.businessImpact}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Desired Completion Date</p>
-                  <p>{requestData.desiredCompletionDate}</p>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Capabilities */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Selected Capabilities</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex flex-wrap gap-2">
-                  {requestData.selectedCapabilities.map((capabilityId) => {
-                    const capability = loadedCapabilities.find(cap => cap._id === capabilityId);
                     return (
-                      <Badge key={capabilityId} className="bg-blue-100 text-blue-800 border-blue-200 px-3 py-1">
-                        {capability ? `${capability.capabilityName} (${capability.shortName})` : capabilityId}
-                      </Badge>
+                      <div key={uniqueKey} className="border rounded-md p-3 bg-gray-50">
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <Label className="text-xs">Sample Name</Label>
+                            <Input value={sample.name || sample.generatedName} disabled className="mt-1 h-8 text-sm" />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Category</Label>
+                            <Input value={sample.category} disabled className="mt-1 h-8 text-sm" />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Type</Label>
+                            <Input value={sample.type} disabled className="mt-1 h-8 text-sm" />
+                          </div>
+                          <div>
+                            <Label className="text-xs">Form</Label>
+                            <Input value={sample.form} disabled className="mt-1 h-8 text-sm" />
+                          </div>
+                          {sample.remark && (
+                            <div className="col-span-2">
+                              <Label className="text-xs">Remark</Label>
+                              <Input value={sample.remark} disabled className="mt-1 h-8 text-sm" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex justify-end mt-2">
+                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                            <Check className="h-3 w-3 mr-1" /> Ready
+                          </Badge>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
               </CardContent>
             </Card>
 
-            {/* Additional Information */}
+
+            {/* Selected Capabilities */}
             <Card>
               <CardHeader>
-                <CardTitle>Additional Information</CardTitle>
+                <CardTitle>Selected Capabilities ({requestData.selectedCapabilities.length})</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <p className="text-sm font-medium text-muted-foreground">Additional Requirements</p>
-                  <p>{requestData.additionalRequirements}</p>
-                </div>
-
-                {requestData.attachments.length > 0 && (
-                  <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-2">Attachments</p>
-                    <div className="space-y-2">
-                      {requestData.attachments.map((file, index) => (
-                        <div key={index} className="flex items-center p-2 border rounded-md">
-                          <span className="text-sm font-medium">{file.name}</span>
-                          <span className="text-xs text-muted-foreground ml-2">
-                            ({(file.size / 1024 / 1024).toFixed(2)} MB)
-                          </span>
+              <CardContent>
+                <div className="space-y-3">
+                  {requestData.selectedCapabilities.map((capabilityId) => {
+                    const capability = loadedCapabilities.find(cap => cap._id === capabilityId);
+                    return (
+                      <div key={capabilityId} className="border rounded-md p-3 bg-gray-50">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="font-medium">
+                              {capability ? capability.capabilityName : capabilityId}
+                            </p>
+                            {capability && (
+                              <p className="text-sm text-muted-foreground">
+                                {capability.shortName} • {capability.description || 'Analysis capability'}
+                              </p>
+                            )}
+                          </div>
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-200">
+                            <Check className="h-3 w-3 mr-1" /> Selected
+                          </Badge>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
+                      </div>
+                    );
+                  })}
+                </div>
               </CardContent>
             </Card>
 
+            {/* PCRD Responsible Person */}
+            <Card>
+              <CardHeader>
+                <CardTitle>PCRD Responsible Person</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-sm">Assignment Method</Label>
+                    <Input 
+                      value={requestData.pcrdPersonSpecified ? "Specific person selected" : "Let capability head assign after approval"} 
+                      disabled 
+                      className="mt-1" 
+                    />
+                  </div>
+                  {requestData.pcrdPersonSpecified && requestData.pcrdResponsiblePerson && (
+                    <div>
+                      <Label className="text-sm">Selected PCRD Person</Label>
+                      <Input 
+                        value={(() => {
+                          const personMap = {
+                            "pcrd.analyst1@company.com": "Dr. Smith (Rheology Specialist)",
+                            "pcrd.analyst2@company.com": "Dr. Johnson (Microstructure Expert)",
+                            "pcrd.analyst3@company.com": "Dr. Williams (Small Molecule Analysis)",
+                            "pcrd.analyst4@company.com": "Dr. Brown (Mesostructure Analysis)",
+                            "pcrd.analyst5@company.com": "Dr. Davis (General Analysis)"
+                          };
+                          return personMap[requestData.pcrdResponsiblePerson] || requestData.pcrdResponsiblePerson;
+                        })()} 
+                        disabled 
+                        className="mt-1" 
+                      />
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Additional Information */}
+            {(requestData.additionalRequirements || requestData.attachments.length > 0) && (
+              <Card>
+                <CardHeader>
+                  <CardTitle>Additional Information</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {requestData.additionalRequirements && (
+                    <div>
+                      <Label className="text-sm">Additional Requirements</Label>
+                      <Input 
+                        value={requestData.additionalRequirements} 
+                        disabled 
+                        className="mt-1" 
+                      />
+                    </div>
+                  )}
+
+                  {requestData.attachments.length > 0 && (
+                    <div>
+                      <Label className="text-sm mb-2">Attachments</Label>
+                      <div className="space-y-2 mt-1">
+                        {requestData.attachments.map((file, index) => (
+                          <div key={index} className="flex items-center p-2 border rounded-md bg-gray-50">
+                            <span className="text-sm font-medium">{file.name}</span>
+                            <span className="text-xs text-muted-foreground ml-2">
+                              ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Action buttons */}
-            <div className="flex justify-between">
-              <Link href="/request/new/asr">
-                <Button variant="outline">
-                  <ChevronLeft className="mr-2 h-4 w-4" />
-                  Edit Request
+            <div className="flex justify-end">
+              <div className="flex space-x-3">
+                <Link href="/request/new/asr">
+                  <Button
+                    variant="outline"
+                    disabled={isSubmitted}
+                    onClick={() => {
+                      // Save current state to localStorage before navigating
+                      try {
+                        localStorage.setItem(
+                          "asrFormData",
+                          JSON.stringify({
+                            requestTitle: requestData.requestTitle,
+                            priority: requestData.priority,
+                            useIONumber: requestData.useIONumber,
+                            ioNumber: requestData.ioNumber,
+                            costCenter: requestData.costCenter,
+                            problemSource: requestData.problemSource,
+                            testObjective: requestData.testObjective,
+                            expectedResults: requestData.expectedResults,
+                            businessImpact: requestData.businessImpact,
+                            desiredCompletionDate: requestData.desiredCompletionDate,
+                            selectedCapabilities: requestData.selectedCapabilities,
+                            pcrdResponsiblePerson: requestData.pcrdResponsiblePerson,
+                            pcrdPersonSpecified: requestData.pcrdPersonSpecified,
+                            additionalRequirements: requestData.additionalRequirements,
+                            attachments: requestData.attachments,
+                            isOnBehalf: requestData.isOnBehalf,
+                            onBehalfOfName: requestData.onBehalfOfName,
+                            onBehalfOfEmail: requestData.onBehalfOfEmail,
+                            onBehalfOfCostCenter: requestData.onBehalfOfCostCenter,
+                          }),
+                        )
+                      } catch (error) {
+                        console.error("Error saving form data to localStorage:", error)
+                      }
+                    }}
+                  >
+                    Back to ASR Form
+                  </Button>
+                </Link>
+                <Button
+                  className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
+                  onClick={handleSubmit}
+                  disabled={isSubmitted}
+                >
+                  {isSubmitted ? "Processing..." : isEditMode && !isDuplicateMode ? "Update Request" : isDuplicateMode ? "Duplicate Request" : "Submit Request"}
                 </Button>
-              </Link>
-              <Button
-                className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600"
-                onClick={handleSubmit}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? "Submitting..." : "Submit Request"}
-                {!isSubmitting && <ArrowRight className="ml-2 h-4 w-4" />}
-              </Button>
+              </div>
             </div>
           </div>
 
@@ -556,28 +704,6 @@ export default function ASRSummaryPage() {
 
                   <Separator />
 
-                  {requestData.priority === "urgent" && requestData.approver && (
-                    <>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">Approver</p>
-                        <p className="font-medium">{requestData.approver}</p>
-                      </div>
-                      <Separator />
-                    </>
-                  )}
-
-                  {requestData.isOnBehalf && requestData.onBehalfOfName && (
-                    <>
-                      <div>
-                        <p className="text-sm font-medium text-muted-foreground">On Behalf Of</p>
-                        <p className="font-medium">{requestData.onBehalfOfName}</p>
-                        <p className="text-xs text-muted-foreground">{requestData.onBehalfOfEmail}</p>
-                        <p className="text-xs text-muted-foreground">Cost Center: {requestData.onBehalfOfCostCenter || "Not available"}</p>
-                      </div>
-                      <Separator />
-                    </>
-                  )}
-
                   <div>
                     <p className="text-sm font-medium text-muted-foreground">Samples</p>
                     <p className="text-2xl font-bold">{requestData.samples.length}</p>
@@ -591,13 +717,13 @@ export default function ASRSummaryPage() {
                   <Separator />
 
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Estimated Cost Range</p>
+                    <p className="text-sm font-medium text-muted-foreground">Estimated Cost</p>
                     <p className="text-2xl font-bold">{requestData.estimatedCost}</p>
                     <p className="text-xs text-muted-foreground">Final cost will be determined after review</p>
                   </div>
 
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground">Estimated Completion</p>
+                    <p className="text-sm font-medium text-muted-foreground">Estimated Turnaround</p>
                     <p className="text-2xl font-bold">{requestData.estimatedCompletion}</p>
                     <p className="text-xs text-muted-foreground">Subject to capability expert review</p>
                   </div>
@@ -616,48 +742,16 @@ export default function ASRSummaryPage() {
               </CardContent>
             </Card>
 
-            {/* ASR Process card */}
+            {/* Help card */}
             <Card className="bg-blue-50 border-blue-200">
               <CardHeader>
-                <CardTitle className="text-blue-800">ASR Process</CardTitle>
+                <CardTitle className="text-blue-800">Need help?</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-3 text-sm text-blue-700">
-                  <div className="flex items-start space-x-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs mt-0.5">
-                      1
-                    </div>
-                    <p>Submit your ASR request with all relevant details and samples</p>
-                  </div>
-
-                  <div className="flex items-start space-x-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs mt-0.5">
-                      2
-                    </div>
-                    <p>Capability experts review your request and may contact you for clarification</p>
-                  </div>
-
-                  <div className="flex items-start space-x-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs mt-0.5">
-                      3
-                    </div>
-                    <p>Once approved, your request is assigned to researchers who will develop a testing plan</p>
-                  </div>
-
-                  <div className="flex items-start space-x-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs mt-0.5">
-                      4
-                    </div>
-                    <p>You'll receive regular updates and can collaborate with the research team</p>
-                  </div>
-
-                  <div className="flex items-start space-x-2">
-                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-blue-200 text-blue-800 text-xs mt-0.5">
-                      5
-                    </div>
-                    <p>Final results and recommendations are delivered in a comprehensive report</p>
-                  </div>
-                </div>
+                <p className="text-blue-700 text-sm mb-4">
+                  If you have any questions about your ASR request or need assistance, please contact our support team.
+                </p>
+                <Button className="w-full bg-blue-600 hover:bg-blue-700">Contact Support</Button>
               </CardContent>
             </Card>
           </div>

@@ -56,7 +56,11 @@
       "mcp__desktop-commander__search_files",
       "Bash(rg:*)",
       "Bash(npm cache clean:*)",
-      "Bash(npx prettier:*)"
+      "Bash(npx prettier:*)",
+      "Bash(git add:*)",
+      "Bash(git push:*)",
+      "Bash(npm run typecheck:*)",
+      "Bash(python3:*)"
     ],
     "deny": []
   },

@@ -112,30 +112,7 @@ export function RequestInformationForm({
           </div>
         </div>
 
-        {/* Priority Section */}
-        <div className="bg-blue-50 rounded-lg p-6">
-          <div className="space-y-3">
-            <Label className="text-sm font-medium text-gray-700">Priority</Label>
-            <RadioGroup
-              value={formData.priority}
-              onValueChange={(value) => onSelectChange("priority", value)}
-              className="flex space-x-6"
-            >
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="normal" id="priority-normal" />
-                <Label htmlFor="priority-normal" className="font-normal text-gray-700 cursor-pointer">
-                  Normal
-                </Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <RadioGroupItem value="urgent" id="priority-urgent" />
-                <Label htmlFor="priority-urgent" className="font-normal text-gray-700 cursor-pointer">
-                  Urgent
-                </Label>
-              </div>
-            </RadioGroup>
-          </div>
-        </div>
+
 
         {/* Conditional Urgent Section */}
         {formData.priority === "urgent" && (
@@ -270,7 +247,7 @@ export function RequestInformationForm({
               </RadioGroup>
               
               <div className="flex-1 max-w-xs">
-                <Label htmlFor="cost-center" className="text-sm font-medium text-gray-700 sr-only">
+                <Label htmlFor="cost-center" className="text-sm font-medium text-gray-700 mb-1 block">
                   Cost Center
                 </Label>
                 <Input

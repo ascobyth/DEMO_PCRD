@@ -16,7 +16,7 @@ import { toast } from "@/components/ui/use-toast"
 interface RawTestMethodData {
   _id?: string | { toString(): string }; // Allow ObjectId or string
   id?: string;
-  methodCode?: string;
+  methodcode?: string;
   testingName?: string;
   detailTh?: string;
   detailEng?: string;
@@ -73,7 +73,7 @@ interface RawTestMethodData {
 }
 
 interface FormattedTestMethodData {
-  methodCode: string;
+  methodcode: string;
   testingName: string;
   detailTh: string;
   detailEng: string;
@@ -131,7 +131,7 @@ export default function TestMethodForm({
 }: TestMethodFormProps) {
   // Default form data with empty strings for all text fields to prevent controlled/uncontrolled input errors
   const defaultFormData: FormattedTestMethodData = {
-    methodCode: "",
+    methodcode: "",
     testingName: "",
     detailTh: "",
     detailEng: "",
@@ -1155,11 +1155,11 @@ export default function TestMethodForm({
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
-            <Label htmlFor="methodCode">Method Code *</Label>
+            <Label htmlFor="methodcode">Method Code *</Label>
             <Input
-              id="methodCode"
-              name="methodCode"
-              value={formData.methodCode}
+              id="methodcode"
+              name="methodcode"
+              value={formData.methodcode}
               onChange={handleChange}
               required
               placeholder="e.g., MS-001"

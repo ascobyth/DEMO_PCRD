@@ -4,7 +4,7 @@ const { Schema } = mongoose;
 // TestingMethod schema definition
 const TestingMethodSchema = new Schema(
   {
-    methodCode: {
+    methodcode: {
       type: String,
       required: true,
       unique: true
@@ -130,12 +130,6 @@ const TestingMethodSchema = new Schema(
   }
 );
 
-// Add a virtual for methodcode that maps to methodCode
-TestingMethodSchema.virtual('methodcode').get(function() {
-  return this.methodCode;
-}).set(function(value) {
-  this.methodCode = value;
-});
 
 // Ensure virtuals are included in JSON output
 TestingMethodSchema.set('toJSON', { virtuals: true });

@@ -11,7 +11,16 @@ export interface Sample {
   plant?: string;
   samplingDate?: string;
   samplingTime?: string;
+  samplingDateTime?: string; // Combined date/time field
+  chemicalName?: string; // For chemicals category
+  supplier?: string; // For chemicals category
+  capType?: string; // For cap development: REF, STD, Other
+  capability?: string; // For cap development: capability selection
   generatedName: string;
+  // TD/NPD specific
+  tdSelectionMode?: 'tech' | 'feature' | 'both'; // Which fields are selected
+  techForFutureUse?: boolean; // Mark tech for future use
+  featureForFutureUse?: boolean; // Mark feature for future use
 }
 
 export interface SampleSet {

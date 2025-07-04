@@ -50,13 +50,12 @@ export async function GET() {
       console.log(`API: Test method ${methodObj.methodcode} data:`, {
         methodcode: methodObj.methodcode,
         price: methodObj.price,
+        priorityPrice: methodObj.priorityPrice,
         testingName: methodObj.testingName,
         equipmentName: methodObj.equipmentName,
         equipmentId: methodObj.equipmentId
       });
       
-      // Remove methodCode field if it exists
-      delete methodObj.methodCode;
       
       return methodObj;
     });
@@ -77,10 +76,8 @@ export async function POST(request) {
 
     const body = await request.json();
 
-    // The model now handles methodCode/methodcode mapping via virtual field
-    
-    // Ensure methodCode exists (required field)
-    if (!body.methodCode && !body.methodcode) {
+    // Ensure methodcode exists (required field)
+    if (!body.methodcode) {
       return NextResponse.json(
         { success: false, error: 'Method code is required' },
         { status: 400 }

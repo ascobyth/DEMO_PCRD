@@ -84,7 +84,7 @@ export async function POST(request) {
               requestId,
               requestNumber,
               methodId: method.id,
-              methodCode: method.methodCode,
+              methodcode: method.methodcode,
               testingCost: method.price.toString(),
               capabilityId: method.capabilityId,
               sampleId,

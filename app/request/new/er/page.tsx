@@ -677,6 +677,9 @@ export default function EquipmentReservationPage() {
           ...formData,
           urgentMemo: null // Can't store files in localStorage
         }))
+        // Redirect to test methods page after samples
+        router.push("/request/new/er/test-methods")
+        return
       } catch (error) {
         console.error("Error saving samples to localStorage:", error)
       }

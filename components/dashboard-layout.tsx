@@ -170,6 +170,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [])
 
+  // Auto-collapse sidebar when navigating to create request pages
+  useEffect(() => {
+    if (pathname.startsWith('/request/new')) {
+      setIsCollapsed(true)
+    }
+  }, [pathname])
+
   // Redirect to login if not authenticated
   useEffect(() => {
     // ลบเงื่อนไขนี้ออกเพราะทำให้เกิดการ redirect ที่ไม่ต้องการ
