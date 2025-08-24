@@ -158,10 +158,6 @@ export default function LoginPage() {
                     {isLoading ? "Signing in..." : "Sign in"}
                   </Button>
                 </div>
-                <div className="mt-4 text-sm text-center text-gray-500">
-                  <p>Default admin account: admin@admin.com</p>
-                  <p>Password: password123</p>
-                </div>
               </form>
               {error && (
                 <div className="mt-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-md text-sm">{error}</div>
